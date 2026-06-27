@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Agent Office</title>
+    <link rel="stylesheet" href="./styles.css" />
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://esm.sh/three@0.166.1",
+          "three/addons/": "https://esm.sh/three@0.166.1/examples/jsm/"
+        }
+      }
+    </script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <span class="brand-mark" aria-hidden="true">A</span>
+          <div>
+            <h1>Agent Office</h1>
+            <p id="teamStatus">5 agents online</p>
+          </div>
+        </div>
+        <nav class="toolbar" aria-label="Agent actions">
+          <button id="assignBtn" class="tool-button primary" title="Assign task" aria-label="Assign task">
+            <span aria-hidden="true">▶</span>
+            <span>Task</span>
+          </button>
+          <button id="shuffleBtn" class="tool-button" title="Rotate seats" aria-label="Rotate seats">
+            <span aria-hidden="true">⇄</span>
+            <span>Move</span>
+          </button>
+          <button id="celebrateBtn" class="tool-button" title="Celebrate" aria-label="Celebrate">
+            <span aria-hidden="true">★</span>
+            <span>Win</span>
+          </button>
+          <button id="viewBtn" class="tool-button" title="Reset camera" aria-label="Reset camera">
+            <span aria-hidden="true">↺</span>
+            <span>View</span>
+          </button>
+          <button id="hireBtn" class="tool-button" title="Hire agent" aria-label="Hire agent">
+            <span aria-hidden="true">＋</span>
+            <span>Hire</span>
+          </button>
+        </nav>
+      </header>
+
+      <main class="workspace">
+        <aside class="roster-panel" aria-label="Team roster">
+          <div class="panel-title-row">
+            <h2>Team</h2>
+            <span id="activeCount">5 / 5</span>
+          </div>
+          <div id="rosterList" class="roster-list"></div>
+        </aside>
+
+        <section class="stage" aria-label="3D agent workspace">
+          <canvas id="officeCanvas"></canvas>
+          <div id="bubbleLayer" class="bubble-layer" aria-hidden="true"></div>
+          <div class="scene-hud">
+            <div>
+              <span class="hud-label">Cell</span>
+              <strong>Marketing Ops</strong>
+            </div>
+            <div>
+              <span class="hud-label">Queue</span>
+              <strong id="queueCount">03</strong>
+            </div>
+            <div>
+              <span class="hud-label">Focus</span>
+              <strong id="focusName">Coordinator</strong>
+            </div>
+          </div>
+        </section>
+
+        <aside class="activity-panel" aria-label="Live activity">
+          <div class="panel-title-row">
+            <h2>Activity</h2>
+            <span id="clock">00:00</span>
+          </div>
+          <div id="activityFeed" class="activity-feed"></div>
+        </aside>
+      </main>
+    </div>
+
+    <script type="module" src="./app.js"></script>
+  </body>
+</html>
