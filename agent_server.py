@@ -374,6 +374,7 @@ class AgentHandler(SimpleHTTPRequestHandler):
             agent_id = str(payload.get("agentId", "all"))
             message = str(payload.get("message", "")).strip()
             session_id = str(payload.get("sessionId", "")).strip() or "local-browser"
+            account_id = normalize_account_id(str(payload.get("accountId", "")).strip() or ACCOUNT_ID)
             raw_attachments = payload.get("attachments", [])
             if not isinstance(raw_attachments, list):
                 raw_attachments = []
@@ -392,11 +393,11 @@ class AgentHandler(SimpleHTTPRequestHandler):
             )
 
             if agent_id == "all":
-                result = run_team_chat(session_id, turn_context)
+                result = run_team_chat(session_id, account_id, turn_context)
                 self._send_json(result)
                 return
 
-            self._send_json(run_direct_agent_chat(session_id, agent_id, turn_context))
+            self._send_json(run_direct_agent_chat(session_id, account_id, agent_id, turn_context))
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
         except Exception as exc:
@@ -563,9 +564,14 @@ def add_nova_instruction_block(lines: list[str]) -> None:
     lines.extend(["", *NOVA_REPORT_RULE_LINES])
 
 
-def run_direct_agent_chat(session_id: str, agent_id: str, turn_context: TurnContext) -> dict[str, Any]:
-    store = get_memory(agent_id)
-    crm = get_crm()
+def run_direct_agent_chat(
+    session_id: str,
+    account_id: str,
+    agent_id: str,
+    turn_context: TurnContext,
+) -> dict[str, Any]:
+    store = get_memory(agent_id, account_id=account_id)
+    crm = get_crm(account_id=account_id)
     message_id = store.add_message(
         role="user",
         author="User",
@@ -579,7 +585,7 @@ def run_direct_agent_chat(session_id: str, agent_id: str, turn_context: TurnCont
         build_prompt(
             agent_id,
             turn_context.message,
-            memory_turns(agent_id, limit=8),
+            memory_turns(agent_id, account_id=account_id, limit=8),
             memory_context=memory_context,
             tool_context=turn_context.tool_context,
             crm_context=crm_context,
@@ -626,9 +632,10 @@ def run_direct_agent_chat(session_id: str, agent_id: str, turn_context: TurnCont
     }
 
 
-def run_team_chat(session_id: str, turn_context: TurnContext) -> dict[str, Any]:
+def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -> dict[str, Any]:
     run_id = uuid.uuid4().hex[:12]
-    pending = PENDING_TEAM_RUNS.pop(session_id, None)
+    pending_key = f"{account_id}:{session_id}"
+    pending = PENDING_TEAM_RUNS.pop(pending_key, None)
     effective_message = turn_context.message
     if pending:
         effective_message = (
@@ -636,7 +643,7 @@ def run_team_chat(session_id: str, turn_context: TurnContext) -> dict[str, Any]:
             f"Исходная задача:\n{pending.get('message', '')}\n\n"
             f"Уточнение пользователя:\n{turn_context.message}"
         )
-    coordinator = get_memory("coordinator")
+    coordinator = get_memory("coordinator", account_id=account_id)
     user_message_id = coordinator.add_message(
         role="user",
         author="User",
@@ -649,7 +656,12 @@ def run_team_chat(session_id: str, turn_context: TurnContext) -> dict[str, Any]:
             "continuedFrom": pending.get("runId") if pending else "",
         },
     )
-    decision = coordinator_decision(turn_context, run_id, effective_message=effective_message)
+    decision = coordinator_decision(
+        turn_context,
+        run_id,
+        account_id=account_id,
+        effective_message=effective_message,
+    )
     assignments = normalize_assignments(decision.get("assignments"))
     coordinator_note = str(decision.get("coordinatorMessage") or decision.get("summary") or "").strip()
     action = str(decision.get("action") or "").strip().lower()
@@ -658,7 +670,7 @@ def run_team_chat(session_id: str, turn_context: TurnContext) -> dict[str, Any]:
     if action == "ask_user" or needs_user_input:
         questions = normalize_user_questions(decision.get("userQuestions"))
         reply = coordinator_note or "\n".join(questions)
-        PENDING_TEAM_RUNS[session_id] = {
+        PENDING_TEAM_RUNS[pending_key] = {
             "runId": run_id,
             "message": effective_message,
             "decision": decision,
@@ -693,10 +705,10 @@ def run_team_chat(session_id: str, turn_context: TurnContext) -> dict[str, Any]:
         reply = coordinator_note or run_codex(
             build_coordinator_direct_prompt(
                 effective_message,
-                memory_turns("coordinator", limit=8),
+                memory_turns("coordinator", account_id=account_id, limit=8),
                 memory_context=coordinator.context_for_prompt(effective_message),
                 tool_context=turn_context.tool_context,
-                crm_context=get_crm().context_for_query(effective_message),
+                crm_context=get_crm(account_id=account_id).context_for_query(effective_message),
             ),
             agent_id="coordinator",
             image_paths=turn_context.image_paths,
@@ -767,11 +779,24 @@ def run_team_chat(session_id: str, turn_context: TurnContext) -> dict[str, Any]:
     )
 
     reports: list[dict[str, str]] = []
-    for item in run_assignment_reports(assignments, effective_message, turn_context, run_id, session_id):
+    for item in run_assignment_reports(
+        assignments,
+        effective_message,
+        turn_context,
+        run_id,
+        session_id,
+        account_id,
+    ):
         reports.append(item["report"])
         messages.append(item["message"])
 
-    followups = run_internal_followups(turn_context, run_id, reports, effective_message=effective_message)
+    followups = run_internal_followups(
+        turn_context,
+        run_id,
+        reports,
+        account_id=account_id,
+        effective_message=effective_message,
+    )
     for item in followups:
         messages.append(item["message"])
         reports.append(item["report"])
@@ -779,12 +804,12 @@ def run_team_chat(session_id: str, turn_context: TurnContext) -> dict[str, Any]:
     final_reply = run_codex(
         build_coordinator_final_prompt(
             effective_message,
-            memory_turns("coordinator", limit=8),
+            memory_turns("coordinator", account_id=account_id, limit=8),
             decision,
             reports,
             memory_context=coordinator.context_for_prompt(effective_message),
             tool_context=turn_context.tool_context,
-            crm_context=get_crm().context_for_query(effective_message),
+            crm_context=get_crm(account_id=account_id).context_for_query(effective_message),
         ),
         agent_id="coordinator",
         image_paths=turn_context.image_paths,
@@ -829,17 +854,18 @@ def coordinator_decision(
     turn_context: TurnContext,
     run_id: str,
     *,
+    account_id: str,
     effective_message: str | None = None,
 ) -> dict[str, Any]:
     message = effective_message or turn_context.message
-    coordinator = get_memory("coordinator")
+    coordinator = get_memory("coordinator", account_id=account_id)
     raw = run_codex(
         build_coordinator_decision_prompt(
             message,
-            memory_turns("coordinator", limit=8),
+            memory_turns("coordinator", account_id=account_id, limit=8),
             memory_context=coordinator.context_for_prompt(message),
             tool_context=turn_context.tool_context,
-            crm_context=get_crm().context_for_query(message),
+            crm_context=get_crm(account_id=account_id).context_for_query(message),
         ),
         agent_id="coordinator",
         image_paths=turn_context.image_paths,
@@ -1053,16 +1079,26 @@ def append_context_blocks(
         lines.extend(["", "Tool context:", tool_context])
 
 
-def get_memory(agent_id: str) -> AgentMemoryStore:
-    return memory_store(MEMORY_ROOT, account_id=ACCOUNT_ID, agent_id=agent_id)
+def normalize_account_id(value: str) -> str:
+    clean = re.sub(r"[^A-Za-z0-9_.-]+", "-", value.strip())[:80].strip(".-")
+    return clean or DEFAULT_ACCOUNT_ID
 
 
-def get_crm() -> LocalCRM:
-    return LocalCRM(DATA_DIR, account_id=ACCOUNT_ID)
+def get_memory(agent_id: str, *, account_id: str = ACCOUNT_ID) -> AgentMemoryStore:
+    return memory_store(MEMORY_ROOT, account_id=account_id, agent_id=agent_id)
 
 
-def memory_turns(agent_id: str, *, limit: int = 8) -> list[dict[str, str]]:
-    store = get_memory(agent_id)
+def get_crm(*, account_id: str = ACCOUNT_ID) -> LocalCRM:
+    return LocalCRM(DATA_DIR, account_id=account_id)
+
+
+def memory_turns(
+    agent_id: str,
+    *,
+    account_id: str = ACCOUNT_ID,
+    limit: int = 8,
+) -> list[dict[str, str]]:
+    store = get_memory(agent_id, account_id=account_id)
     with store._connect() as db:  # local lightweight read helper
         rows = db.execute(
             """
@@ -1136,10 +1172,18 @@ def run_assignment_reports(
     turn_context: TurnContext,
     run_id: str,
     session_id: str,
+    account_id: str,
 ) -> list[dict[str, Any]]:
     if len(assignments) <= 1:
         return [
-            run_single_assignment_report(assignment, effective_message, turn_context, run_id, session_id)
+            run_single_assignment_report(
+                assignment,
+                effective_message,
+                turn_context,
+                run_id,
+                session_id,
+                account_id,
+            )
             for assignment in assignments
         ]
 
@@ -1154,6 +1198,7 @@ def run_assignment_reports(
                 turn_context,
                 run_id,
                 session_id,
+                account_id,
             )
             for assignment in assignments
         ]
@@ -1168,9 +1213,10 @@ def run_single_assignment_report(
     turn_context: TurnContext,
     run_id: str,
     session_id: str,
+    account_id: str,
 ) -> dict[str, Any]:
     agent_id = assignment["agentId"]
-    agent_store = get_memory(agent_id)
+    agent_store = get_memory(agent_id, account_id=account_id)
     agent_store.add_message(
         role="assistant",
         author="Coordinator",
@@ -1185,10 +1231,10 @@ def run_single_assignment_report(
             agent_id,
             assignment["task"],
             effective_message,
-            memory_turns(agent_id, limit=8),
+            memory_turns(agent_id, account_id=account_id, limit=8),
             memory_context=agent_store.context_for_prompt(f"{effective_message}\n{assignment['task']}"),
             tool_context=turn_context.tool_context,
-            crm_context=get_crm().context_for_query(effective_message)
+            crm_context=get_crm(account_id=account_id).context_for_query(effective_message)
             if agent_id in {"mika", "dev", "nova"}
             else "",
         ),
@@ -1219,7 +1265,7 @@ def run_single_assignment_report(
         metadata={"sessionId": session_id, "runId": run_id},
     )
     if agent_id in {"mika", "nova"}:
-        get_crm().note_interaction(
+        get_crm(account_id=account_id).note_interaction(
             agent_id=agent_id,
             message=effective_message,
             summary=report,
@@ -1244,6 +1290,7 @@ def run_internal_followups(
     run_id: str,
     reports: list[dict[str, str]],
     *,
+    account_id: str,
     effective_message: str | None = None,
 ) -> list[dict[str, Any]]:
     message = effective_message or turn_context.message
@@ -1258,16 +1305,16 @@ def run_internal_followups(
         if key in seen:
             continue
         seen.add(key)
-        target_store = get_memory(target_id)
+        target_store = get_memory(target_id, account_id=account_id)
         answer = run_codex(
             build_agent_report_prompt(
                 target_id,
                 f"Ответь на внутренний вопрос от {report['agent']}: {question_text}",
                 message,
-                memory_turns(target_id, limit=8),
+                memory_turns(target_id, account_id=account_id, limit=8),
                 memory_context=target_store.context_for_prompt(question_text),
                 tool_context=turn_context.tool_context,
-                crm_context=get_crm().context_for_query(message)
+                crm_context=get_crm(account_id=account_id).context_for_query(message)
                 if target_id in {"mika", "dev", "nova"}
                 else "",
             ),

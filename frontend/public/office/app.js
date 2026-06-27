@@ -22,7 +22,13 @@ const chatInput = document.querySelector("#chatInput");
 const chatSend = document.querySelector("#chatSend");
 
 const AGENT_CHAT_API = "http://127.0.0.1:4173/api/agents/chat";
-const chatSessionId = `office-${Date.now().toString(36)}`;
+const AUTH_API =
+  window.location.hostname === "localhost" ? "http://localhost:8000" : "http://127.0.0.1:8000";
+const CHAT_STORAGE_VERSION = 1;
+
+let accountKey = getGuestAccountKey();
+let chatSessionId = getOrCreateChatSessionId(accountKey);
+let storageReady = false;
 
 const tasks = [
   "Competitor scan",
@@ -97,41 +103,7 @@ const agents = [
 
 let selectedChatId = "all";
 let chatBusy = false;
-const chatThreads = new Map([
-  [
-    "all",
-    [
-      {
-        author: "Scout",
-        type: "agent",
-        from: "scout",
-        text: "I've completed the competitor research and added key takeaways.",
-        time: "17:33",
-      },
-      {
-        author: "Mika",
-        type: "agent",
-        from: "mika",
-        text: "Messaging framework is done. Sharing it in the doc now.",
-        time: "17:34",
-      },
-      {
-        author: "Dev",
-        type: "agent",
-        from: "dev",
-        text: "The first version of the page is built. Working on responsive tweaks.",
-        time: "17:34",
-      },
-      {
-        author: "Nova",
-        type: "agent",
-        from: "nova",
-        text: "Assets are uploaded and organized. Let me know if anything's missing.",
-        time: "17:35",
-      },
-    ],
-  ],
-]);
+let chatThreads = createEmptyChatThreads();
 
 const agentStyles = [
   {
@@ -187,28 +159,36 @@ const camera = new THREE.OrthographicCamera(-7, 7, 4.6, -4.6, 0.1, 100);
 camera.position.set(7.2, 6.4, 8.6);
 camera.lookAt(0, 0.8, 0);
 
-const renderer = new THREE.WebGLRenderer({
-  canvas,
-  antialias: true,
-  alpha: false,
-  powerPreference: "high-performance",
-});
-renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
-renderer.shadowMap.enabled = true;
-renderer.shadowMap.type = THREE.PCFSoftShadowMap;
-renderer.outputColorSpace = THREE.SRGBColorSpace;
+let renderer = null;
+let controls = null;
+try {
+  renderer = new THREE.WebGLRenderer({
+    canvas,
+    antialias: true,
+    alpha: false,
+    powerPreference: "high-performance",
+  });
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
 
-const controls = new OrbitControls(camera, canvas);
-controls.target.set(0, 0.8, 0);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
-controls.enablePan = true;
-controls.screenSpacePanning = true;
-controls.minZoom = 0.58;
-controls.maxZoom = 1.85;
-controls.minPolarAngle = Math.PI * 0.18;
-controls.maxPolarAngle = Math.PI * 0.5;
-controls.update();
+  controls = new OrbitControls(camera, canvas);
+  controls.target.set(0, 0.8, 0);
+  controls.enableDamping = true;
+  controls.dampingFactor = 0.08;
+  controls.enablePan = true;
+  controls.screenSpacePanning = true;
+  controls.minZoom = 0.58;
+  controls.maxZoom = 1.85;
+  controls.minPolarAngle = Math.PI * 0.18;
+  controls.maxPolarAngle = Math.PI * 0.5;
+  controls.update();
+} catch (error) {
+  canvas.dataset.webgl = "unavailable";
+  canvas.hidden = true;
+  console.warn("3D workspace disabled because WebGL is unavailable.", error);
+}
 
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
@@ -634,6 +614,137 @@ function currentChatTime() {
   return new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
 }
 
+function validChatId(chatId) {
+  return chatId === "all" || agents.some((agent) => agentChatId(agent) === chatId);
+}
+
+function createEmptyChatThreads() {
+  return new Map([["all", []]]);
+}
+
+function safeStorageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Storage can be unavailable in strict/private browser modes.
+  }
+}
+
+function randomStorageId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function getGuestAccountKey() {
+  const key = "rebly-office-guest-account";
+  const existing = safeStorageGet(key);
+  if (existing) return existing;
+  const next = `guest-${randomStorageId()}`;
+  safeStorageSet(key, next);
+  return next;
+}
+
+function getOrCreateChatSessionId(nextAccountKey) {
+  const key = `rebly-office-session:${nextAccountKey}`;
+  const existing = safeStorageGet(key);
+  if (existing) return existing;
+  const next = `office-${nextAccountKey}-${randomStorageId()}`;
+  safeStorageSet(key, next);
+  return next;
+}
+
+function chatStorageKey(nextAccountKey = accountKey) {
+  return `rebly-office-chat-v${CHAT_STORAGE_VERSION}:${nextAccountKey}`;
+}
+
+function serializeChatThreads() {
+  return Object.fromEntries(
+    [...chatThreads.entries()].map(([chatId, thread]) => [
+      chatId,
+      thread
+        .filter((message) => message?.text && message.text !== "Thinking...")
+        .slice(-120),
+    ]),
+  );
+}
+
+function hydrateChatThreads(value) {
+  const next = createEmptyChatThreads();
+  if (!value || typeof value !== "object") return next;
+  Object.entries(value).forEach(([chatId, thread]) => {
+    if (!validChatId(chatId) || !Array.isArray(thread)) return;
+    next.set(
+      chatId,
+      thread
+        .filter((message) => message && typeof message.text === "string")
+        .map((message) => ({
+          author: String(message.author || "Agent"),
+          type: message.type === "user" ? "user" : "agent",
+          from: String(message.from || ""),
+          text: String(message.text || ""),
+          time: String(message.time || ""),
+        })),
+    );
+  });
+  return next;
+}
+
+function saveChatState() {
+  if (!storageReady) return;
+  safeStorageSet(
+    chatStorageKey(),
+    JSON.stringify({
+      selectedChatId,
+      threads: serializeChatThreads(),
+    }),
+  );
+}
+
+function loadChatState(nextAccountKey) {
+  accountKey = nextAccountKey;
+  chatSessionId = getOrCreateChatSessionId(accountKey);
+  storageReady = false;
+
+  const raw = safeStorageGet(chatStorageKey(accountKey));
+  let parsed = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = null;
+  }
+
+  chatThreads = hydrateChatThreads(parsed?.threads);
+  selectedChatId = validChatId(parsed?.selectedChatId) ? parsed.selectedChatId : "all";
+  storageReady = true;
+}
+
+async function resolveAccountContext() {
+  try {
+    const response = await fetch(`${AUTH_API}/api/auth/me`, { credentials: "include" });
+    if (!response.ok) return;
+    const payload = await response.json();
+    const userId = payload?.user?.id;
+    if (!userId) return;
+    const nextAccountKey = `user-${userId}`;
+    if (nextAccountKey === accountKey) return;
+    loadChatState(nextAccountKey);
+    renderChatTargets();
+    renderChatMessages();
+  } catch {
+    // Keep guest-local persistence if the auth backend is not reachable.
+  }
+}
+
 function selectedThread() {
   if (!chatThreads.has(selectedChatId)) {
     chatThreads.set(selectedChatId, []);
@@ -712,6 +823,7 @@ function appendChatMessage(chatId, message) {
     ...message,
   };
   chatThreads.get(chatId).push(entry);
+  saveChatState();
   if (chatId === selectedChatId) renderChatMessages();
   return entry;
 }
@@ -721,6 +833,7 @@ function replaceChatMessage(chatId, current, next) {
   const index = thread.indexOf(current);
   if (index >= 0) {
     thread.splice(index, 1, { time: currentChatTime(), ...next });
+    saveChatState();
   }
   if (chatId === selectedChatId) renderChatMessages();
 }
@@ -770,11 +883,14 @@ async function requestAgentChat(chatId, text) {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), 90000);
   try {
-    const history = selectedThread().slice(-12).map((message) => ({
-      role: message.type === "user" ? "user" : "assistant",
-      author: message.author,
-      text: message.text,
-    }));
+    const history = selectedThread()
+      .filter((message) => message.text !== "Thinking...")
+      .slice(-12)
+      .map((message) => ({
+        role: message.type === "user" ? "user" : "assistant",
+        author: message.author,
+        text: message.text,
+      }));
     const response = await fetch(AGENT_CHAT_API, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -783,6 +899,7 @@ async function requestAgentChat(chatId, text) {
         message: text,
         history,
         sessionId: chatSessionId,
+        accountId: accountKey,
       }),
       signal: controller.signal,
     });
@@ -850,6 +967,7 @@ function selectAgent(index) {
   const agent = agents[index];
   focusName.textContent = agent.name;
   selectedChatId = agentChatId(agent);
+  saveChatState();
   agent.state = agent.state === "working" ? "working" : "focused";
   agent.bubble = agent.state === "working" ? agent.bubble : "Focused";
   addActivity(agent, "selected", `${agent.role} is now in focus.`);
@@ -919,9 +1037,11 @@ function hireAgent() {
     inactive.active = true;
     inactive.state = "focused";
     inactive.bubble = "Joined";
-    inactive.group.visible = true;
-    inactive.group.position.set(6.8, 0, 3.2);
-    inactive.group.userData.target.copy(slots[inactive.slot]);
+    if (inactive.group) {
+      inactive.group.visible = true;
+      inactive.group.position.set(6.8, 0, 3.2);
+      inactive.group.userData.target.copy(slots[inactive.slot]);
+    }
     addActivity(inactive, "hired", `${inactive.role} joined the team.`);
   } else {
     const target = agents[selectedIndex];
@@ -933,6 +1053,7 @@ function hireAgent() {
 }
 
 function resetView() {
+  if (!controls) return;
   camera.position.set(7.2, 6.4, 8.6);
   camera.zoom = 1;
   controls.target.set(0, 0.8, 0);
@@ -1107,6 +1228,7 @@ function updateAgents(delta, elapsed) {
 }
 
 function onCanvasClick(event) {
+  if (!renderer) return;
   const rect = canvas.getBoundingClientRect();
   pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
   pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
@@ -1118,6 +1240,7 @@ function onCanvasClick(event) {
 }
 
 function resize() {
+  if (!renderer) return;
   const { clientWidth, clientHeight } = canvas.parentElement;
   renderer.setSize(clientWidth, clientHeight, false);
   const aspect = clientWidth / Math.max(clientHeight, 1);
@@ -1147,6 +1270,7 @@ function startAutomation() {
 }
 
 function animate() {
+  if (!renderer || !controls) return;
   const elapsed = clockTimer.getElapsedTime();
   const delta = Math.min(clockTimer.getDelta(), 0.05);
   updateAgents(delta, elapsed);
@@ -1157,8 +1281,11 @@ function animate() {
 
 const clockTimer = new THREE.Clock();
 
-addOffice();
-agents.forEach(createAgentModel);
+if (renderer) {
+  addOffice();
+  agents.forEach(createAgentModel);
+}
+loadChatState(accountKey);
 
 document.querySelector("#assignBtn").addEventListener("click", () => assignTask());
 document.querySelector("#shuffleBtn").addEventListener("click", shuffleTeam);
@@ -1171,6 +1298,7 @@ chatTab.addEventListener("click", () => setPanelTab("chat"));
 activityTab.addEventListener("click", () => setPanelTab("activity"));
 chatTarget.addEventListener("change", () => {
   selectedChatId = chatTarget.value;
+  saveChatState();
   renderChatMessages();
 });
 chatComposer.addEventListener("submit", sendChatMessage);
@@ -1178,6 +1306,7 @@ chatComposer.addEventListener("submit", sendChatMessage);
 renderRoster();
 renderChatTargets();
 renderChatMessages();
+resolveAccountContext();
 addActivity(agents[0], "online", "Workspace cell is ready.");
 addActivity(agents[2], "working", "Scanning market signals.");
 updateClock();

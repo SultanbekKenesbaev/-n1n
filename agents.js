@@ -65,12 +65,14 @@ const agents = [
 ];
 
 const chats = [teamChat, ...agents];
+const THREAD_STORAGE_VERSION = 1;
 const threads = Object.fromEntries(chats.map((chat) => [chat.id, []]));
 
 let selectedChatId = "all";
 let pending = false;
 let selectedFiles = [];
-const sessionId = getSessionId();
+const accountId = getAccountId();
+const sessionId = getSessionId(accountId);
 
 const agentList = document.querySelector("#agentList");
 const activeAgentName = document.querySelector("#activeAgentName");
@@ -96,6 +98,10 @@ function selectedThread() {
   return threads[selectedChatId] || threads.all;
 }
 
+function validChatId(chatId) {
+  return chats.some((chat) => chat.id === chatId);
+}
+
 function renderAgents() {
   agentList.innerHTML = "";
   chats.forEach((agent) => {
@@ -104,6 +110,7 @@ function renderAgents() {
     row.className = `agent-row ${agent.id === selectedChatId ? "active" : ""}`;
     row.addEventListener("click", () => {
       selectedChatId = agent.id;
+      saveThreads();
       render();
     });
 
@@ -212,7 +219,11 @@ function renderActivity() {
 }
 
 function appendMessage(chatId, message) {
+  if (!threads[chatId]) {
+    threads[chatId] = [];
+  }
   threads[chatId].push(message);
+  saveThreads();
 }
 
 function setAgentState(chatId, state) {
@@ -296,9 +307,11 @@ function replaceLastLoading(chatId, replacement) {
   const index = thread.map((message) => message.type).lastIndexOf("loading");
   if (index >= 0) {
     thread.splice(index, 1, replacement);
+    saveThreads();
     return;
   }
   thread.push(replacement);
+  saveThreads();
 }
 
 async function requestAgentReply(agentId, message, history, files) {
@@ -307,6 +320,7 @@ async function requestAgentReply(agentId, message, history, files) {
     message,
     history,
     sessionId,
+    accountId,
     profiles: chatProfiles,
   };
   const request = files.length
@@ -343,6 +357,7 @@ function multipartRequest(payload, files) {
 
 function clearChat() {
   threads[selectedChatId].splice(0);
+  saveThreads();
   render();
 }
 
@@ -368,21 +383,112 @@ fileInput.addEventListener("change", () => {
   renderAttachments();
 });
 
+loadThreads();
 render();
 
 window.kaliyaAgentsDebug = {
   agents,
   chats,
   threads,
+  accountId,
+  sessionId,
 };
 
-function getSessionId() {
-  const key = "n1n-agent-session-id";
-  const existing = localStorage.getItem(key);
+function randomStorageId() {
+  if (globalThis.crypto?.randomUUID) {
+    return globalThis.crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
+function safeStorageGet(key) {
+  try {
+    return window.localStorage.getItem(key);
+  } catch {
+    return null;
+  }
+}
+
+function safeStorageSet(key, value) {
+  try {
+    window.localStorage.setItem(key, value);
+  } catch {
+    // Keep the chat usable when localStorage is blocked.
+  }
+}
+
+function getAccountId() {
+  const key = "n1n-agent-account-id";
+  const existing = safeStorageGet(key);
   if (existing) return existing;
-  const next = crypto.randomUUID ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  localStorage.setItem(key, next);
+  const next = `standalone-${randomStorageId()}`;
+  safeStorageSet(key, next);
   return next;
+}
+
+function getSessionId(nextAccountId) {
+  const key = `n1n-agent-session-id:${nextAccountId}`;
+  const existing = safeStorageGet(key);
+  if (existing) return existing;
+  const next = `agents-${nextAccountId}-${randomStorageId()}`;
+  safeStorageSet(key, next);
+  return next;
+}
+
+function threadsStorageKey() {
+  return `n1n-agent-threads-v${THREAD_STORAGE_VERSION}:${accountId}`;
+}
+
+function serializeThreads() {
+  return Object.fromEntries(
+    Object.entries(threads).map(([chatId, thread]) => [
+      chatId,
+      thread
+        .filter((message) => message?.text && message.type !== "loading")
+        .slice(-120),
+    ]),
+  );
+}
+
+function saveThreads() {
+  safeStorageSet(
+    threadsStorageKey(),
+    JSON.stringify({
+      selectedChatId,
+      threads: serializeThreads(),
+    }),
+  );
+}
+
+function loadThreads() {
+  const raw = safeStorageGet(threadsStorageKey());
+  let parsed = null;
+  try {
+    parsed = raw ? JSON.parse(raw) : null;
+  } catch {
+    parsed = null;
+  }
+  if (parsed?.threads && typeof parsed.threads === "object") {
+    Object.entries(parsed.threads).forEach(([chatId, thread]) => {
+      if (!validChatId(chatId) || !Array.isArray(thread)) return;
+      threads[chatId] = thread
+        .filter((message) => message && typeof message.text === "string")
+        .map((message) => ({
+          author: String(message.author || "Agent"),
+          type: ["user", "agent", "error"].includes(message.type) ? message.type : "agent",
+          text: String(message.text || ""),
+          phase: String(message.phase || ""),
+          audience: String(message.audience || ""),
+          from: String(message.from || ""),
+          to: String(message.to || ""),
+          isFinal: Boolean(message.isFinal),
+          runId: String(message.runId || ""),
+        }));
+    });
+  }
+  if (validChatId(parsed?.selectedChatId)) {
+    selectedChatId = parsed.selectedChatId;
+  }
 }
 
 function renderAttachments() {
