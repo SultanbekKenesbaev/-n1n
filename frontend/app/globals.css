@@ -3211,6 +3211,22 @@ a {
   margin-top: 12px;
 }
 
+.connection-fields {
+  display: grid;
+  gap: 8px;
+}
+
+.connection-fields input {
+  margin-top: 0;
+}
+
+.connection-fields small {
+  color: #667085;
+  font-family: var(--mono);
+  font-size: 11px;
+  font-weight: 900;
+}
+
 .connect-button {
   align-self: start;
   min-height: 34px;

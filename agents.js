@@ -1,5 +1,8 @@
 import { chatProfiles, redactSensitiveText } from "./agents-kaliya-core.js";
 
+const AUTH_API =
+  window.location.hostname === "localhost" ? "http://localhost:8000" : "http://127.0.0.1:8000";
+
 const teamChat = {
   id: "all",
   name: "Team",
@@ -8,7 +11,7 @@ const teamChat = {
   state: "ready",
   mission: "Общий чат всей команды: Coordinator, Mika, Scout, Dev и Nova отвечают как единая AI-команда.",
   model: "Coordinator gpt-5.5 + agent models",
-  tools: "Память, ссылки, файлы, CRM, CSV, фото/видео context",
+  tools: "OpenRouter, Codex fallback, память, ссылки, файлы, CRM, CSV, фото/видео context",
 };
 
 const agents = [
@@ -19,8 +22,8 @@ const agents = [
     color: "#4f5bd5",
     state: "ready",
     mission: "Arman-характер: четкий операционный тимлид. Понимает задачу, задает точные вопросы, распределяет работу, проверяет отчеты агентов и собирает финальный результат.",
-    model: "gpt-5.5",
-    tools: "Память команды, CRM-сводка, ссылки, файлы, финальная сборка",
+    model: "openai/gpt-5.5",
+    tools: "OpenRouter, Codex fallback, память команды, CRM-сводка, ссылки, файлы, финальная сборка",
   },
   {
     id: "mika",
@@ -29,8 +32,8 @@ const agents = [
     color: "#d04f6a",
     state: "ready",
     mission: "Умный продавец-консультант: диагностирует клиента, формирует офферы, отвечает на возражения, пишет переписки и ведет к следующему шагу без давления.",
-    model: "gpt-5.4",
-    tools: "Sales-память, CRM, входящие лиды, ссылки, файлы",
+    model: "openai/gpt-5.4",
+    tools: "OpenRouter, Codex fallback, Sales-память, CRM, входящие лиды, ссылки, файлы",
   },
   {
     id: "scout",
@@ -39,8 +42,8 @@ const agents = [
     color: "#0097a7",
     state: "ready",
     mission: "Контент-стратег и исследователь: находит аудиторию, боли, рыночные углы, хуки, темы, Reels/посты/сторис и связывает контент с бизнес-целью.",
-    model: "gpt-5.4",
-    tools: "Content-память, ссылки, фото/видео context, рыночные материалы",
+    model: "google/gemini-3.1-pro-preview",
+    tools: "OpenRouter, Codex fallback, Content-память, ссылки, фото/видео context, рыночные материалы",
   },
   {
     id: "dev",
@@ -49,18 +52,18 @@ const agents = [
     color: "#13a56f",
     state: "ready",
     mission: "Разбирает бизнес как систему: модель, процессы, воронку, юнит-экономику, метрики, риски, узкие места, гипотезы и план улучшений.",
-    model: "gpt-5.5",
-    tools: "Business-память, CRM, CSV/таблицы, метрики, ссылки",
+    model: "openai/gpt-5.5",
+    tools: "OpenRouter, Codex fallback, Business-память, CRM, CSV/таблицы, метрики, ссылки",
   },
   {
     id: "nova",
     name: "Nova",
-    role: "Support & Community Operator",
+    role: "Support, Community & Publishing Operator",
     color: "#c98908",
     state: "ready",
-    mission: "Оператор коммуникаций: отвечает на комментарии, Direct/DM, отзывы, негатив, FAQ и поддержку, сохраняет спокойный тон и передает покупательское намерение Mika.",
-    model: "gpt-5.4-mini",
-    tools: "Support-память, CRM, входящие сообщения, FAQ, комментарии",
+    mission: "Оператор коммуникаций и публикаций: отвечает на комментарии, Direct/DM, отзывы, FAQ, готовит approved-посты и публикует в Telegram только после подтверждения.",
+    model: "google/gemini-3.1-flash-lite",
+    tools: "OpenRouter, Codex fallback, Support-память, CRM, входящие сообщения, FAQ, Telegram publish",
   },
 ];
 
@@ -180,6 +183,9 @@ function renderConversation() {
     const text = document.createElement("p");
     text.textContent = message.text;
     item.append(author, text);
+    if (message.pendingPublish) {
+      item.appendChild(createPublishCard(selectedChatId, message));
+    }
     conversation.appendChild(item);
   });
   conversation.scrollTop = conversation.scrollHeight;
@@ -258,6 +264,20 @@ async function sendMessage(text) {
     const messages = normalizeReplyMessages(result, chat.name);
     replaceLastLoading(chatId, messages[0]);
     messages.slice(1).forEach((message) => appendMessage(chatId, message));
+    if (result.pendingPublish?.text) {
+      appendMessage(chatId, {
+        author: "Nova",
+        type: "agent",
+        text: "Публикация готова. Проверь текст и нажми Publish, когда можно отправлять в Telegram.",
+        phase: "final",
+        audience: "user",
+        from: "nova",
+        to: "",
+        isFinal: false,
+        runId: result.pendingPublish.runId || "",
+        pendingPublish: result.pendingPublish,
+      });
+    }
     selectedFiles = [];
     fileInput.value = "";
   } catch (error) {
@@ -288,7 +308,93 @@ function normalizeReplyMessages(result, fallbackAuthor) {
     to: message.to || "",
     isFinal: Boolean(message.isFinal),
     runId: message.runId || "",
+    pendingPublish: normalizePendingPublish(message.pendingPublish),
   })).filter((message) => message.text.trim());
+}
+
+function normalizePendingPublish(value) {
+  if (!value || typeof value !== "object" || typeof value.text !== "string") return null;
+  return {
+    platform: value.platform === "telegram" ? "telegram" : "telegram",
+    status: String(value.status || "approval_required"),
+    text: String(value.text || ""),
+    runId: String(value.runId || ""),
+    source: String(value.source || "team"),
+    error: String(value.error || ""),
+  };
+}
+
+function createPublishCard(chatId, message) {
+  const pendingPublish = message.pendingPublish;
+  const card = document.createElement("div");
+  card.className = `publish-card ${pendingPublish.status}`;
+  const title = document.createElement("strong");
+  title.textContent = "Telegram publish";
+  const preview = document.createElement("p");
+  preview.textContent = pendingPublish.text;
+  const button = document.createElement("button");
+  button.type = "button";
+  button.textContent = publishButtonText(pendingPublish.status);
+  button.disabled = pendingPublish.status === "publishing" || pendingPublish.status === "published";
+  button.addEventListener("click", () => publishPendingMessage(chatId, message));
+  card.append(title, preview, button);
+  if (pendingPublish.error) {
+    const error = document.createElement("small");
+    error.textContent = pendingPublish.error;
+    card.appendChild(error);
+  }
+  return card;
+}
+
+function publishButtonText(status) {
+  if (status === "publishing") return "Publishing...";
+  if (status === "published") return "Published";
+  if (status === "error") return "Retry publish";
+  return "Publish";
+}
+
+async function publishPendingMessage(chatId, message) {
+  const pendingPublish = message.pendingPublish;
+  if (!pendingPublish?.text) return;
+  pendingPublish.status = "publishing";
+  pendingPublish.error = "";
+  saveThreads();
+  render();
+  try {
+    const response = await fetch(`${AUTH_API}/api/publish/telegram`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        text: pendingPublish.text,
+        run_id: pendingPublish.runId,
+        source: pendingPublish.source,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.detail || `HTTP ${response.status}`);
+    }
+    pendingPublish.status = "published";
+    saveThreads();
+    appendMessage(chatId, {
+      author: "Nova",
+      type: "agent",
+      text: "Опубликовано в Telegram.",
+      phase: "final",
+      audience: "user",
+      from: "nova",
+      to: "",
+      isFinal: true,
+      runId: pendingPublish.runId || "",
+    });
+    render();
+  } catch (error) {
+    pendingPublish.status = "error";
+    pendingPublish.error = error instanceof Error ? error.message : "Telegram publish failed";
+    saveThreads();
+    render();
+  }
 }
 
 function threadForApi(chatId) {
@@ -483,6 +589,7 @@ function loadThreads() {
           to: String(message.to || ""),
           isFinal: Boolean(message.isFinal),
           runId: String(message.runId || ""),
+          pendingPublish: normalizePendingPublish(message.pendingPublish),
         }));
     });
   }

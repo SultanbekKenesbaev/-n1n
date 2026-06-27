@@ -1,16 +1,20 @@
 from __future__ import annotations
 
 import argparse
+import base64
 from concurrent.futures import ThreadPoolExecutor
 from email import policy
 from email.parser import BytesParser
 import json
+import mimetypes
 import os
 import re
 import shutil
 import subprocess
 import sys
 import tempfile
+import urllib.error
+import urllib.request
 import uuid
 from http import HTTPStatus
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -34,14 +38,42 @@ from kaliya.text_safety import redact_sensitive_text  # noqa: E402
 
 DATA_DIR = ROOT / "data"
 MEMORY_ROOT = DATA_DIR / "agent-memory"
+
+
+def load_local_env(path: Path) -> None:
+    if not path.exists():
+        return
+    for raw_line in path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip().strip('"').strip("'")
+        if key and key not in os.environ:
+            os.environ[key] = value
+
+
+load_local_env(ROOT / ".env")
+load_local_env(ROOT / "backend" / ".env")
+
 ACCOUNT_ID = os.environ.get("N1N_ACCOUNT_ID", DEFAULT_ACCOUNT_ID).strip() or DEFAULT_ACCOUNT_ID
 AGENT_MODEL_OVERRIDES = {
+    "coordinator": "openai/gpt-5.5",
+    "dev": "openai/gpt-5.5",
+    "scout": "google/gemini-3.1-pro-preview",
+    "mika": "openai/gpt-5.4",
+    "nova": "google/gemini-3.1-flash-lite",
+}
+CODEX_MODEL_OVERRIDES = {
     "coordinator": "gpt-5.5",
     "dev": "gpt-5.5",
     "scout": "gpt-5.4",
     "mika": "gpt-5.4",
     "nova": "gpt-5.4-mini",
 }
+OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
+OPENROUTER_TIMEOUT_SECONDS = 240
 AGENT_SEARCH_ENABLED = {
     "coordinator": True,
     "mika": True,
@@ -84,6 +116,16 @@ WEB_SEARCH_TRIGGERS = (
     "market",
     "competitor",
     "trend",
+)
+PUBLISH_TRIGGERS = (
+    "опубли",
+    "вылож",
+    "запости",
+    "публикац",
+    "telegram",
+    "телеграм",
+    "канал",
+    "tg",
 )
 PENDING_TEAM_RUNS: dict[str, dict[str, Any]] = {}
 
@@ -131,11 +173,12 @@ AGENTS: dict[str, dict[str, str]] = {
     },
     "nova": {
         "name": "Nova",
-        "role": "Support & Community Operator",
+        "role": "Support, Community & Publishing Operator",
         "prompt": (
             "Ты Nova: оператор коммуникаций и community-support агент. "
             "Отвечаешь на вопросы, комментарии, входящие сообщения, негатив и FAQ, "
-            "держишь тон спокойно и передаешь покупательское намерение Mika."
+            "держишь тон спокойно, передаешь покупательское намерение Mika и готовишь approved-публикации "
+            "в Telegram без автопостинга."
         ),
     },
 }
@@ -581,7 +624,7 @@ def run_direct_agent_chat(
     )
     memory_context = store.context_for_prompt(turn_context.message)
     crm_context = crm.context_for_query(turn_context.message) if agent_id in {"coordinator", "mika", "dev", "nova"} else ""
-    reply = run_codex(
+    reply = run_ai(
         build_prompt(
             agent_id,
             turn_context.message,
@@ -702,7 +745,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         }
 
     if not assignments:
-        reply = coordinator_note or run_codex(
+        reply = coordinator_note or run_ai(
             build_coordinator_direct_prompt(
                 effective_message,
                 memory_turns("coordinator", account_id=account_id, limit=8),
@@ -801,7 +844,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         messages.append(item["message"])
         reports.append(item["report"])
 
-    final_reply = run_codex(
+    final_reply = run_ai(
         build_coordinator_final_prompt(
             effective_message,
             memory_turns("coordinator", account_id=account_id, limit=8),
@@ -814,6 +857,13 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         agent_id="coordinator",
         image_paths=turn_context.image_paths,
         search_enabled=False,
+    )
+    final_reply, publish_text = split_publish_text(final_reply)
+    pending_publish = build_pending_publish(
+        effective_message,
+        final_reply,
+        publish_text,
+        run_id=run_id,
     )
     coordinator_final_id = coordinator.add_message(
         role="assistant",
@@ -847,6 +897,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         "messages": messages,
         "agent": agent_payload("all"),
         "decision": decision,
+        "pendingPublish": pending_publish,
     }
 
 
@@ -859,7 +910,7 @@ def coordinator_decision(
 ) -> dict[str, Any]:
     message = effective_message or turn_context.message
     coordinator = get_memory("coordinator", account_id=account_id)
-    raw = run_codex(
+    raw = run_ai(
         build_coordinator_decision_prompt(
             message,
             memory_turns("coordinator", account_id=account_id, limit=8),
@@ -912,6 +963,8 @@ def build_coordinator_decision_prompt(
         "- Для контента, постов, Reels, сценариев, рынка, конкурентов, аудитории, хуков и тем подключай Scout.",
         "- Для бизнеса, воронки, метрик, прибыли, маржи, CAC/LTV, ROI/ROMI, процессов, рисков и гипотез подключай Dev.",
         "- Для вопросов, комментариев, входящих сообщений, отзывов, жалоб, негатива, FAQ и поддержки подключай Nova.",
+        "- Если пользователь просит опубликовать, выложить или подготовить пост для Telegram/канала, подключай Scout + Nova.",
+        "- Если публикация должна продавать, собирать заявки или вести к покупке, дополнительно подключай Mika.",
         "- Если пользователь просит подготовить ответ на входящее сообщение, комментарий, Direct/DM, WhatsApp или Telegram, Nova обязательна.",
         "- Если во входящем сообщении есть цена, покупка, запись, оплата или лид, подключай Nova + Mika: Nova отвечает за коммуникационный тон, Mika за продажный следующий шаг.",
         "- Если нужны агенты, дай каждому отдельную четкую задачу.",
@@ -979,6 +1032,7 @@ def build_agent_report_prompt(
         "Не пиши шаблонное 'беру задачу'. Сразу дай полезный результат.",
         "Если тебе нужно уточнение у другого агента, явно напиши: Вопрос к <agent>: <вопрос>.",
         "Если нужен ответ пользователя, явно напиши: Вопрос пользователю: <вопрос>.",
+        "Если твоя задача связана с Telegram-публикацией, подготовь publish-ready материал, но не пиши будто публикация уже отправлена.",
     ]
     append_context_blocks(lines, memory_context=memory_context, tool_context=tool_context, crm_context=crm_context)
     if agent_id == "mika":
@@ -1028,6 +1082,9 @@ def build_coordinator_final_prompt(
             "Если агент задал важный вопрос и без ответа нельзя продолжить, задай пользователю четкие вопросы.",
             "Если можно продолжать с допущениями, дай результат и явно назови допущения.",
             "Финал не должен быть склейкой отчетов. Убери повторы, воду и слабые формулировки.",
+            "Если задача просит Telegram-публикацию или постинг, не утверждай что пост уже опубликован.",
+            "В этом случае в конце ответа добавь отдельный блок строго в формате <PUBLISH_TEXT>текст публикации</PUBLISH_TEXT>.",
+            "Внутри <PUBLISH_TEXT> должен быть только текст, который можно отправить в Telegram, без служебных комментариев.",
         ]
     )
     append_history(lines, history)
@@ -1226,7 +1283,7 @@ def run_single_assignment_report(
         source_agent_id="coordinator",
         metadata={"sessionId": session_id},
     )
-    report = run_codex(
+    report = run_ai(
         build_agent_report_prompt(
             agent_id,
             assignment["task"],
@@ -1306,7 +1363,7 @@ def run_internal_followups(
             continue
         seen.add(key)
         target_store = get_memory(target_id, account_id=account_id)
-        answer = run_codex(
+        answer = run_ai(
             build_agent_report_prompt(
                 target_id,
                 f"Ответь на внутренний вопрос от {report['agent']}: {question_text}",
@@ -1478,6 +1535,10 @@ def keyword_decision(message: str) -> dict[str, Any]:
             "целевая",
             "темы",
             "идеи",
+            "опубли",
+            "вылож",
+            "запости",
+            "публикац",
         )
     ):
         assignments.append({"agentId": "scout", "task": "Подготовь контент-стратегию: аудитория, угол, темы, хуки, форматы, сценарии и связь с бизнес-целью."})
@@ -1547,6 +1608,11 @@ def keyword_decision(message: str) -> dict[str, Any]:
             "спрашивает",
             "спросил",
             "спросила",
+            "опубли",
+            "вылож",
+            "запости",
+            "публикац",
+            "канал",
         )
     ):
         assignments.append({"agentId": "nova", "task": "Подготовь коммуникационный ответ: намерение человека, канал, тон, готовая формулировка, эскалация и следующий шаг."})
@@ -1568,6 +1634,154 @@ def wants_web_search(agent_id: str, *texts: str) -> bool:
     return any(trigger in value for trigger in WEB_SEARCH_TRIGGERS)
 
 
+def wants_telegram_publish(text: str) -> bool:
+    lowered = text.lower()
+    return any(trigger in lowered for trigger in PUBLISH_TRIGGERS)
+
+
+def split_publish_text(reply: str) -> tuple[str, str]:
+    match = re.search(r"<PUBLISH_TEXT>\s*(.*?)\s*</PUBLISH_TEXT>", reply, flags=re.IGNORECASE | re.DOTALL)
+    if not match:
+        return reply.strip(), ""
+    publish_text = match.group(1).strip()
+    display_text = (reply[: match.start()] + reply[match.end() :]).strip()
+    return display_text or "Готово. Текст подготовлен к публикации после подтверждения.", publish_text
+
+
+def build_pending_publish(
+    user_message: str,
+    final_reply: str,
+    publish_text: str,
+    *,
+    run_id: str,
+) -> dict[str, str] | None:
+    if not wants_telegram_publish(user_message):
+        return None
+    text = (publish_text or final_reply).strip()
+    if not text:
+        return None
+    return {
+        "platform": "telegram",
+        "status": "approval_required",
+        "text": text[:4000],
+        "runId": run_id,
+        "source": "team",
+    }
+
+
+def run_ai(
+    prompt: str,
+    *,
+    agent_id: str = "coordinator",
+    image_paths: list[Path] | None = None,
+    search_enabled: bool | None = None,
+) -> str:
+    openrouter_error: RuntimeError | None = None
+    try:
+        return run_openrouter(
+            prompt,
+            agent_id=agent_id,
+            image_paths=image_paths or [],
+            search_enabled=search_enabled,
+        )
+    except RuntimeError as exc:
+        openrouter_error = exc
+
+    try:
+        return run_codex(
+            prompt,
+            agent_id=agent_id,
+            image_paths=image_paths,
+            search_enabled=search_enabled,
+        )
+    except RuntimeError as codex_error:
+        openrouter_detail = str(openrouter_error or "not attempted")[-500:]
+        codex_detail = str(codex_error)[-500:]
+        raise RuntimeError(
+            f"AI backend не ответил. OpenRouter: {openrouter_detail}. Codex fallback: {codex_detail}"
+        ) from codex_error
+
+
+def run_openrouter(
+    prompt: str,
+    *,
+    agent_id: str,
+    image_paths: list[Path],
+    search_enabled: bool | None,
+) -> str:
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        raise RuntimeError("OPENROUTER_API_KEY is not configured")
+
+    payload: dict[str, Any] = {
+        "model": AGENT_MODEL_OVERRIDES.get(agent_id, AGENT_MODEL_OVERRIDES["coordinator"]),
+        "messages": [{"role": "user", "content": openrouter_content(prompt, image_paths)}],
+        "max_tokens": 8000,
+    }
+    effective_search_enabled = (
+        AGENT_SEARCH_ENABLED.get(agent_id, False) if search_enabled is None else bool(search_enabled)
+    )
+    if effective_search_enabled:
+        payload["tools"] = [{"type": "openrouter:web_search"}]
+
+    request = urllib.request.Request(
+        OPENROUTER_API_URL,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "http://localhost:3000",
+            "X-Title": "Rebly AI Agent Team",
+        },
+        method="POST",
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=OPENROUTER_TIMEOUT_SECONDS) as response:
+            raw = response.read().decode("utf-8")
+    except urllib.error.HTTPError as exc:
+        detail = exc.read().decode("utf-8", errors="replace")[-1200:]
+        raise RuntimeError(f"OpenRouter HTTP {exc.code}: {detail}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"OpenRouter request failed: {exc.reason}") from exc
+
+    try:
+        data = json.loads(raw)
+        message = data["choices"][0]["message"]
+        content = message.get("content", "")
+    except (KeyError, IndexError, TypeError, json.JSONDecodeError) as exc:
+        raise RuntimeError("OpenRouter returned an unexpected response") from exc
+
+    reply = normalize_openrouter_content(content)
+    if not reply:
+        raise RuntimeError("OpenRouter returned an empty response")
+    return reply
+
+
+def openrouter_content(prompt: str, image_paths: list[Path]) -> str | list[dict[str, Any]]:
+    if not image_paths:
+        return prompt
+    content: list[dict[str, Any]] = [{"type": "text", "text": prompt}]
+    for image_path in image_paths:
+        mime_type = mimetypes.guess_type(str(image_path))[0] or "image/png"
+        data = base64.b64encode(image_path.read_bytes()).decode("ascii")
+        content.append({"type": "image_url", "image_url": {"url": f"data:{mime_type};base64,{data}"}})
+    return content
+
+
+def normalize_openrouter_content(content: object) -> str:
+    if isinstance(content, str):
+        return content.strip()
+    if isinstance(content, list):
+        parts: list[str] = []
+        for item in content:
+            if isinstance(item, dict):
+                text = item.get("text")
+                if isinstance(text, str):
+                    parts.append(text)
+        return "\n".join(parts).strip()
+    return ""
+
+
 def run_codex(
     prompt: str,
     *,
@@ -1578,7 +1792,7 @@ def run_codex(
     if not shutil.which("codex"):
         raise RuntimeError("Codex CLI не найден. Запусти сервер на машине, где доступен codex.")
 
-    model = AGENT_MODEL_OVERRIDES.get(agent_id)
+    model = CODEX_MODEL_OVERRIDES.get(agent_id)
     effective_search_enabled = (
         AGENT_SEARCH_ENABLED.get(agent_id, False) if search_enabled is None else bool(search_enabled)
     )

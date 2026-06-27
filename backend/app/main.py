@@ -5,6 +5,7 @@ from app.auth.router import router as auth_router
 from app.config import get_settings
 from app.db.base import Base
 from app.db.session import engine
+from app.integrations import router as integrations_router
 from app import models  # noqa: F401
 
 settings = get_settings()
@@ -14,6 +15,8 @@ app = FastAPI(title=settings.app_name)
 allowed_origins = {
     str(settings.frontend_url).rstrip("/"),
     "http://127.0.0.1:3000",
+    "http://localhost:4173",
+    "http://127.0.0.1:4173",
 }
 
 app.add_middleware(
@@ -36,4 +39,4 @@ def health() -> dict[str, str]:
 
 
 app.include_router(auth_router)
-
+app.include_router(integrations_router)

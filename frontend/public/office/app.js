@@ -91,7 +91,7 @@ const agents = [
   },
   {
     name: "Nova",
-    role: "Operator",
+    role: "Publisher",
     kind: "human",
     color: "#c98908",
     slot: 4,
@@ -693,10 +693,23 @@ function hydrateChatThreads(value) {
           from: String(message.from || ""),
           text: String(message.text || ""),
           time: String(message.time || ""),
+          pendingPublish: normalizePendingPublish(message.pendingPublish),
         })),
     );
   });
   return next;
+}
+
+function normalizePendingPublish(value) {
+  if (!value || typeof value !== "object" || typeof value.text !== "string") return null;
+  return {
+    platform: value.platform === "telegram" ? "telegram" : "telegram",
+    status: String(value.status || "approval_required"),
+    text: String(value.text || ""),
+    runId: String(value.runId || ""),
+    source: String(value.source || "team"),
+    error: String(value.error || ""),
+  };
 }
 
 function saveChatState() {
@@ -807,11 +820,46 @@ function renderChatMessages() {
     bubble.textContent = message.text;
 
     body.append(head, bubble);
+    if (message.pendingPublish) {
+      body.append(createPublishCard(selectedChatId, message));
+    }
     row.append(avatar, body);
     chatMessages.appendChild(row);
   });
 
   chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+function createPublishCard(chatId, message) {
+  const pending = message.pendingPublish;
+  const card = document.createElement("div");
+  card.className = `publish-card ${pending.status}`;
+
+  const title = document.createElement("strong");
+  title.textContent = "Telegram publish";
+  const preview = document.createElement("p");
+  preview.textContent = pending.text;
+
+  const action = document.createElement("button");
+  action.type = "button";
+  action.textContent = publishButtonText(pending.status);
+  action.disabled = pending.status === "publishing" || pending.status === "published";
+  action.addEventListener("click", () => publishPendingMessage(chatId, message));
+
+  card.append(title, preview, action);
+  if (pending.error) {
+    const error = document.createElement("small");
+    error.textContent = pending.error;
+    card.appendChild(error);
+  }
+  return card;
+}
+
+function publishButtonText(status) {
+  if (status === "publishing") return "Publishing...";
+  if (status === "published") return "Published";
+  if (status === "error") return "Retry publish";
+  return "Publish";
 }
 
 function appendChatMessage(chatId, message) {
@@ -853,19 +901,12 @@ function normalizeAgentMessages(result, fallbackChatId) {
     }));
 }
 
-function fallbackAgentReply(chatId, userText) {
-  const agent = agentByChatId(chatId);
-  if (chatId === "all") {
-    return {
-      author: "Coordinator",
-      from: "coordinator",
-      text: `I queued this for the team: "${userText}". Mika, Scout, Dev and Nova will coordinate the next steps.`,
-    };
-  }
+function agentErrorReply(error) {
+  const detail = error instanceof Error ? error.message : "AI backend error";
   return {
-    author: agent?.name || "Agent",
-    from: chatId,
-    text: `Got it. I'll use this context and prepare the next step: "${userText}".`,
+    author: "System",
+    from: "system",
+    text: `AI backend не ответил: ${detail}`,
   };
 }
 
@@ -935,13 +976,60 @@ async function sendChatMessage(event) {
   try {
     const result = await requestAgentChat(chatId, text);
     const replies = normalizeAgentMessages(result, chatId);
-    replaceChatMessage(chatId, loading, replies[0] || fallbackAgentReply(chatId, text));
+    replaceChatMessage(chatId, loading, replies[0] || agentErrorReply(new Error("AI вернул пустой ответ.")));
     replies.slice(1).forEach((reply) => appendChatMessage(chatId, reply));
-  } catch {
-    replaceChatMessage(chatId, loading, fallbackAgentReply(chatId, text));
+    if (result.pendingPublish?.text) {
+      appendChatMessage(chatId, {
+        author: "Nova",
+        type: "agent",
+        from: "nova",
+        text: "Публикация готова. Проверь текст и нажми Publish, когда можно отправлять в Telegram.",
+        pendingPublish: result.pendingPublish,
+      });
+    }
+  } catch (error) {
+    replaceChatMessage(chatId, loading, agentErrorReply(error));
   } finally {
     chatBusy = false;
     chatSend.disabled = false;
+  }
+}
+
+async function publishPendingMessage(chatId, message) {
+  const pending = message.pendingPublish;
+  if (!pending?.text) return;
+  pending.status = "publishing";
+  pending.error = "";
+  saveChatState();
+  renderChatMessages();
+  try {
+    const response = await fetch(`${AUTH_API}/api/publish/telegram`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "include",
+      body: JSON.stringify({
+        text: pending.text,
+        run_id: pending.runId,
+        source: pending.source,
+      }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      throw new Error(payload.detail || `HTTP ${response.status}`);
+    }
+    pending.status = "published";
+    saveChatState();
+    appendChatMessage(chatId, {
+      author: "Nova",
+      type: "agent",
+      from: "nova",
+      text: "Опубликовано в Telegram.",
+    });
+  } catch (error) {
+    pending.status = "error";
+    pending.error = error instanceof Error ? error.message : "Telegram publish failed";
+    saveChatState();
+    renderChatMessages();
   }
 }
 

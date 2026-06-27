@@ -54,6 +54,15 @@ interface UserData {
   google_connected: boolean;
 }
 
+interface IntegrationsData {
+  telegram_bot: {
+    connected: boolean;
+    target_chat_id: string | null;
+    bot_username: string | null;
+    updated_at: string | null;
+  };
+}
+
 interface TaskItem {
   id: number;
   title: string;
@@ -350,8 +359,10 @@ export default function DashboardPage() {
   const [memoryEnabled, setMemoryEnabled] = useState(true);
   const [telegramToken, setTelegramToken] = useState("");
   const [telegramBotToken, setTelegramBotToken] = useState("");
+  const [telegramBotTarget, setTelegramBotTarget] = useState("");
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [telegramBotConnected, setTelegramBotConnected] = useState(false);
+  const [telegramBotStatus, setTelegramBotStatus] = useState("");
 
   useEffect(() => {
     const storedTheme = localStorage.getItem("rebly-theme");
@@ -370,6 +381,7 @@ export default function DashboardPage() {
       .then((payload) => {
         if (payload?.user) {
           setUser(payload.user);
+          loadIntegrations();
         }
       })
       .finally(() => setLoading(false));
@@ -428,14 +440,50 @@ export default function DashboardPage() {
     applyThemeMode(mode);
   }
 
-  function connectTelegram(kind: "account" | "bot") {
+  async function loadIntegrations() {
+    try {
+      const response = await fetch(`${API_URL}/api/integrations`, { credentials: "include" });
+      if (!response.ok) return;
+      const payload: IntegrationsData = await response.json();
+      setTelegramBotConnected(Boolean(payload.telegram_bot.connected));
+      setTelegramBotTarget(payload.telegram_bot.target_chat_id || "");
+      setTelegramBotStatus(
+        payload.telegram_bot.connected
+          ? `Connected${payload.telegram_bot.bot_username ? ` as @${payload.telegram_bot.bot_username}` : ""}`
+          : ""
+      );
+    } catch {
+      setTelegramBotStatus("Could not load Telegram status");
+    }
+  }
+
+  async function connectTelegram(kind: "account" | "bot") {
     if (kind === "account" && telegramToken.trim().length > 8) {
       setTelegramConnected(true);
       setTelegramToken("");
     }
-    if (kind === "bot" && telegramBotToken.trim().length > 8) {
-      setTelegramBotConnected(true);
-      setTelegramBotToken("");
+    if (kind === "bot" && telegramBotToken.trim().length > 8 && telegramBotTarget.trim()) {
+      setTelegramBotStatus("Connecting...");
+      try {
+        const response = await fetch(`${API_URL}/api/integrations/telegram-bot`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify({
+            bot_token: telegramBotToken.trim(),
+            target_chat_id: telegramBotTarget.trim(),
+          }),
+        });
+        const payload = await response.json().catch(() => ({}));
+        if (!response.ok) {
+          throw new Error(payload.detail || "Telegram connection failed");
+        }
+        setTelegramBotConnected(true);
+        setTelegramBotToken("");
+        await loadIntegrations();
+      } catch (error) {
+        setTelegramBotStatus(error instanceof Error ? error.message : "Telegram connection failed");
+      }
     }
   }
 
@@ -808,9 +856,13 @@ export default function DashboardPage() {
                   setTelegramToken,
                   telegramBotToken,
                   setTelegramBotToken,
+                  telegramBotTarget,
+                  setTelegramBotTarget,
                   telegramConnected,
                   telegramBotConnected,
-                  connectTelegram
+                  telegramBotStatus,
+                  connectTelegram,
+                  loadIntegrations
                 })}
               </div>
             </div>
@@ -1099,9 +1151,13 @@ function renderSettingsPanel({
   setTelegramToken,
   telegramBotToken,
   setTelegramBotToken,
+  telegramBotTarget,
+  setTelegramBotTarget,
   telegramConnected,
   telegramBotConnected,
-  connectTelegram
+  telegramBotStatus,
+  connectTelegram,
+  loadIntegrations
 }: {
   tab: SettingsTab;
   displayName: string;
@@ -1116,9 +1172,13 @@ function renderSettingsPanel({
   setTelegramToken: (value: string) => void;
   telegramBotToken: string;
   setTelegramBotToken: (value: string) => void;
+  telegramBotTarget: string;
+  setTelegramBotTarget: (value: string) => void;
   telegramConnected: boolean;
   telegramBotConnected: boolean;
+  telegramBotStatus: string;
   connectTelegram: (kind: "account" | "bot") => void;
+  loadIntegrations: () => void | Promise<void>;
 }) {
   if (tab === "profile") {
     return (
@@ -1313,7 +1373,7 @@ function renderSettingsPanel({
         </div>
         <section className="settings-block connected-summary">
           <span>{(user?.google_connected ? 1 : 0) + (telegramConnected ? 1 : 0) + (telegramBotConnected ? 1 : 0)} of 4 connected</span>
-          <button className="button" type="button">
+          <button className="button" type="button" onClick={loadIntegrations}>
             <Clock size={15} /> Refresh
           </button>
         </section>
@@ -1333,7 +1393,10 @@ function renderSettingsPanel({
             copy="Paste your bot token so agents can post approved messages."
             token={telegramBotToken}
             setToken={setTelegramBotToken}
+            target={telegramBotTarget}
+            setTarget={setTelegramBotTarget}
             connected={telegramBotConnected}
+            statusDetail={telegramBotStatus}
             onConnect={() => connectTelegram("bot")}
           />
           <ConnectionCard name="Instagram" copy="Route social replies and mentions into the team queue." status="Ready" />
@@ -1394,7 +1457,10 @@ function ConnectionCard({
   status,
   token,
   setToken,
+  target,
+  setTarget,
   connected,
+  statusDetail,
   onConnect
 }: {
   name: string;
@@ -1402,7 +1468,10 @@ function ConnectionCard({
   status?: string;
   token?: string;
   setToken?: (value: string) => void;
+  target?: string;
+  setTarget?: (value: string) => void;
   connected?: boolean;
+  statusDetail?: string;
   onConnect?: () => void;
 }) {
   const isTokenCard = Boolean(setToken && onConnect);
@@ -1415,17 +1484,34 @@ function ConnectionCard({
         <h2>{name}</h2>
         <p>{copy}</p>
         {isTokenCard && (
-          <input
-            type="password"
-            value={token}
-            onChange={(event) => setToken?.(event.target.value)}
-            placeholder={connected ? "Connected" : "Paste token"}
-            disabled={connected}
-          />
+          <div className="connection-fields">
+            <input
+              type="password"
+              value={token}
+              onChange={(event) => setToken?.(event.target.value)}
+              placeholder={connected ? "Connected" : "Paste token"}
+              disabled={connected}
+            />
+            {setTarget && (
+              <input
+                type="text"
+                value={target}
+                onChange={(event) => setTarget(event.target.value)}
+                placeholder="@channel or chat id"
+                disabled={connected}
+              />
+            )}
+            {statusDetail && <small>{statusDetail}</small>}
+          </div>
         )}
       </div>
       {isTokenCard ? (
-        <button className="button solid connect-button" type="button" onClick={onConnect} disabled={connected || !token || token.length < 9}>
+        <button
+          className="button solid connect-button"
+          type="button"
+          onClick={onConnect}
+          disabled={connected || !token || token.length < 9 || Boolean(setTarget && !target)}
+        >
           {connected ? "Connected" : "Connect"}
         </button>
       ) : (

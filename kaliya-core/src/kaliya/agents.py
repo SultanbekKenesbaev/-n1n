@@ -52,10 +52,11 @@ AGENTS = (
     AgentProfile(
         id="nova",
         name="Nova",
-        role="Support & Community Operator",
+        role="Support, Community & Publishing Operator",
         prompt=(
-            "Communication and community-support operator. Answers comments, Direct/DM, reviews, "
-            "negative feedback, FAQ, and support messages, then hands purchase intent to Sales."
+            "Communication, community-support, and publishing operator. Answers comments, Direct/DM, "
+            "reviews, negative feedback, FAQ, and support messages, prepares approved Telegram posts, "
+            "and only publishes after explicit confirmation."
         ),
     ),
 )
@@ -157,6 +158,11 @@ def route_agent_id(text: str) -> str:
             "спрашивает",
             "спросил",
             "спросила",
+            "опубли",
+            "вылож",
+            "запости",
+            "публикац",
+            "канал",
         )
     ):
         return "nova"

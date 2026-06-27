@@ -21,9 +21,9 @@ class Settings(BaseSettings):
     google_auth_uri: str = "https://accounts.google.com/o/oauth2/auth"
     google_token_uri: str = "https://oauth2.googleapis.com/token"
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
+    integration_encryption_secret: str = ""
 
 
 @lru_cache
 def get_settings() -> Settings:
     return Settings()
-

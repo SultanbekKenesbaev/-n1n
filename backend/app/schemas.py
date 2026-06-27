@@ -28,3 +28,31 @@ class UserResponse(BaseModel):
 class AuthResponse(BaseModel):
     user: UserResponse
 
+
+class TelegramBotStatus(BaseModel):
+    connected: bool
+    target_chat_id: str | None = None
+    bot_username: str | None = None
+    updated_at: datetime | None = None
+
+
+class IntegrationsResponse(BaseModel):
+    telegram_bot: TelegramBotStatus
+
+
+class TelegramBotConnectRequest(BaseModel):
+    bot_token: str = Field(min_length=9, max_length=256)
+    target_chat_id: str = Field(min_length=1, max_length=255)
+
+
+class PublishTelegramRequest(BaseModel):
+    text: str = Field(min_length=1, max_length=4096)
+    run_id: str | None = Field(default=None, max_length=80)
+    source: str | None = Field(default=None, max_length=80)
+
+
+class PublishTelegramResponse(BaseModel):
+    ok: bool
+    platform: str = "telegram"
+    message_id: int | None = None
+    chat_id: str | int | None = None
