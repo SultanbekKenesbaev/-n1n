@@ -1,5 +1,6 @@
 import * as THREE from "three";
 import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
 const officeParams = new URLSearchParams(window.location.search);
 const isDashboardEmbed = officeParams.get("embed") === "dashboard";
@@ -58,12 +59,146 @@ const teamProfile = {
   active: true,
 };
 
-const slots = [
-  new THREE.Vector3(-3.55, 0, 1.25),
-  new THREE.Vector3(-1.65, 0, -1.2),
-  new THREE.Vector3(0.6, 0, 0.8),
-  new THREE.Vector3(2.85, 0, -1.05),
-  new THREE.Vector3(3.75, 0, 1.45),
+const rooms = {
+  open: {
+    name: "Open Space",
+    center: new THREE.Vector3(0, 0, -2.45),
+    size: { x: 13.8, z: 5.95 },
+    bounds: { minX: -6.75, maxX: 6.75, minZ: -5.35, maxZ: 0.25 },
+  },
+  kitchen: {
+    name: "Kitchen",
+    center: new THREE.Vector3(-3.55, 0, 3.05),
+    size: { x: 6.8, z: 5.05 },
+    bounds: { minX: -6.75, maxX: -0.35, minZ: 0.65, maxZ: 5.35 },
+  },
+  relax: {
+    name: "Relax Room",
+    center: new THREE.Vector3(3.55, 0, 3.05),
+    size: { x: 6.8, z: 5.05 },
+    bounds: { minX: 0.35, maxX: 6.75, minZ: 0.65, maxZ: 5.35 },
+  },
+};
+
+const workStations = [
+  {
+    point: new THREE.Vector3(-5.05, 0, -2.15),
+    desk: new THREE.Vector3(-4.65, 0, -2.85),
+    rotation: -0.08,
+    color: "#d04f6a",
+    activity: "Campaign desk",
+  },
+  {
+    point: new THREE.Vector3(-2.25, 0, -3.45),
+    desk: new THREE.Vector3(-1.9, 0, -4.05),
+    rotation: 0.03,
+    color: "#0097a7",
+    activity: "Research pod",
+  },
+  {
+    point: new THREE.Vector3(0.05, 0, -1.35),
+    desk: new THREE.Vector3(0.45, 0, -1.95),
+    rotation: -0.04,
+    color: "#4f5bd5",
+    activity: "Command desk",
+  },
+  {
+    point: new THREE.Vector3(2.65, 0, -3.25),
+    desk: new THREE.Vector3(3.05, 0, -3.85),
+    rotation: 0.05,
+    color: "#13a56f",
+    activity: "Build desk",
+  },
+  {
+    point: new THREE.Vector3(4.75, 0, -1.35),
+    desk: new THREE.Vector3(5.1, 0, -1.95),
+    rotation: -0.06,
+    color: "#c98908",
+    activity: "Support desk",
+  },
+];
+
+const slots = workStations.map((station) => station.point.clone());
+
+const roomGateways = {
+  open: new THREE.Vector3(0, 0, 0.15),
+  kitchen: new THREE.Vector3(-2.7, 0, 0.95),
+  relax: new THREE.Vector3(2.7, 0, 0.95),
+};
+
+const idleDestinations = [
+  {
+    id: "kitchen-coffee",
+    room: "kitchen",
+    kind: "coffee",
+    point: new THREE.Vector3(-5.55, 0, 2.0),
+    face: new THREE.Vector3(-5.9, 0, 1.3),
+    bubbles: ["Coffee?", "Taking coffee"],
+  },
+  {
+    id: "kitchen-table",
+    room: "kitchen",
+    kind: "talk",
+    point: new THREE.Vector3(-3.65, 0, 4.15),
+    face: new THREE.Vector3(-2.85, 0, 4.15),
+    bubbles: ["Quick sync", "Menu break"],
+  },
+  {
+    id: "kitchen-snack",
+    room: "kitchen",
+    kind: "coffee",
+    point: new THREE.Vector3(-1.75, 0, 2.75),
+    face: new THREE.Vector3(-2.35, 0, 2.95),
+    bubbles: ["Snack ready", "Recharge"],
+  },
+  {
+    id: "relax-sofa",
+    room: "relax",
+    kind: "rest",
+    point: new THREE.Vector3(2.35, 0, 3.1),
+    face: new THREE.Vector3(5.85, 0, 2.65),
+    bubbles: ["Reset", "Thinking"],
+  },
+  {
+    id: "relax-tv",
+    room: "relax",
+    kind: "screen",
+    point: new THREE.Vector3(4.75, 0, 3.9),
+    face: new THREE.Vector3(6.55, 0, 2.4),
+    bubbles: ["Watching metrics", "Reviewing"],
+  },
+  {
+    id: "relax-books",
+    room: "relax",
+    kind: "read",
+    point: new THREE.Vector3(5.9, 0, 4.55),
+    face: new THREE.Vector3(6.4, 0, 4.35),
+    bubbles: ["Reading notes", "Learning"],
+  },
+  {
+    id: "open-whiteboard",
+    room: "open",
+    kind: "talk",
+    point: new THREE.Vector3(1.45, 0, -4.65),
+    face: new THREE.Vector3(2.4, 0, -5.2),
+    bubbles: ["Plan next", "Board check"],
+  },
+  {
+    id: "open-plants",
+    room: "open",
+    kind: "talk",
+    point: new THREE.Vector3(-0.65, 0, -0.25),
+    face: new THREE.Vector3(0.55, 0, -0.35),
+    bubbles: ["Team sync", "Discussing"],
+  },
+  {
+    id: "open-window",
+    room: "open",
+    kind: "focused",
+    point: new THREE.Vector3(-5.95, 0, -4.65),
+    face: new THREE.Vector3(-6.65, 0, -4.4),
+    bubbles: ["Market notes", "Thinking"],
+  },
 ];
 
 const agents = [
@@ -196,8 +331,8 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color("#f4f6f8");
 
 const camera = new THREE.OrthographicCamera(-7, 7, 4.6, -4.6, 0.1, 100);
-camera.position.set(7.2, 6.4, 8.6);
-camera.lookAt(0, 0.8, 0);
+camera.position.set(9.8, 8.1, 10.8);
+camera.lookAt(0, 0.7, 0.2);
 
 let renderer = null;
 let controls = null;
@@ -214,13 +349,13 @@ try {
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   controls = new OrbitControls(camera, canvas);
-  controls.target.set(0, 0.8, 0);
+  controls.target.set(0, 0.7, 0.2);
   controls.enableDamping = true;
   controls.dampingFactor = 0.08;
   controls.enablePan = true;
   controls.screenSpacePanning = true;
-  controls.minZoom = 0.58;
-  controls.maxZoom = 1.85;
+  controls.minZoom = 0.5;
+  controls.maxZoom = 2.05;
   controls.minPolarAngle = Math.PI * 0.18;
   controls.maxPolarAngle = Math.PI * 0.5;
   controls.update();
@@ -252,15 +387,29 @@ const root = new THREE.Group();
 scene.add(root);
 
 const clickTargets = [];
+const gltfLoader = new GLTFLoader();
+const gltfCache = new Map();
+const loadedAssetNames = new Set();
+let teamWorkActive = false;
+let teamWorkTimer = null;
+let roamingTimer = null;
 
-function createCanvasTexture() {
+function createCanvasTexture(
+  base = "#edf1f5",
+  line = "#d7dee9",
+  accents = [
+    { color: "rgba(79, 91, 213, 0.08)", x: 0, y: 192, w: 512, h: 64 },
+    { color: "rgba(0, 151, 167, 0.08)", x: 192, y: 0, w: 64, h: 512 },
+  ],
+  repeat = { x: 2.2, y: 1.4 },
+) {
   const textureCanvas = document.createElement("canvas");
   textureCanvas.width = 512;
   textureCanvas.height = 512;
   const ctx = textureCanvas.getContext("2d");
-  ctx.fillStyle = "#edf1f5";
+  ctx.fillStyle = base;
   ctx.fillRect(0, 0, 512, 512);
-  ctx.strokeStyle = "#d7dee9";
+  ctx.strokeStyle = line;
   ctx.lineWidth = 2;
   for (let i = 0; i <= 512; i += 64) {
     ctx.beginPath();
@@ -272,127 +421,725 @@ function createCanvasTexture() {
     ctx.lineTo(512, i);
     ctx.stroke();
   }
-  ctx.fillStyle = "rgba(79, 91, 213, 0.08)";
-  ctx.fillRect(0, 192, 512, 64);
-  ctx.fillStyle = "rgba(0, 151, 167, 0.08)";
-  ctx.fillRect(192, 0, 64, 512);
+  accents.forEach((accent) => {
+    ctx.fillStyle = accent.color;
+    ctx.fillRect(accent.x, accent.y, accent.w, accent.h);
+  });
 
   const texture = new THREE.CanvasTexture(textureCanvas);
   texture.wrapS = THREE.RepeatWrapping;
   texture.wrapT = THREE.RepeatWrapping;
-  texture.repeat.set(2.2, 1.4);
+  texture.repeat.set(repeat.x, repeat.y);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function createWoodTexture(base = "#d9b27e", line = "#b98756") {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = 512;
+  textureCanvas.height = 512;
+  const ctx = textureCanvas.getContext("2d");
+  ctx.fillStyle = base;
+  ctx.fillRect(0, 0, 512, 512);
+  ctx.strokeStyle = line;
+  ctx.lineWidth = 3;
+  for (let y = 0; y < 512; y += 58) {
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(512, y + 18 * Math.sin(y * 0.03));
+    ctx.stroke();
+  }
+  ctx.strokeStyle = "rgba(255,255,255,0.22)";
+  ctx.lineWidth = 1;
+  for (let x = 36; x < 512; x += 82) {
+    ctx.beginPath();
+    ctx.moveTo(x, 0);
+    ctx.lineTo(x - 16, 512);
+    ctx.stroke();
+  }
+
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.wrapS = THREE.RepeatWrapping;
+  texture.wrapT = THREE.RepeatWrapping;
+  texture.repeat.set(1.8, 1.45);
   texture.colorSpace = THREE.SRGBColorSpace;
   return texture;
 }
 
 function addOffice() {
-  const floor = new THREE.Mesh(
-    new THREE.BoxGeometry(12.8, 0.32, 8.2),
+  const foundation = new THREE.Mesh(
+    new THREE.BoxGeometry(14.8, 0.34, 11.35),
     new THREE.MeshStandardMaterial({
-      map: createCanvasTexture(),
-      roughness: 0.75,
-      metalness: 0.05,
+      color: "#dbeafe",
+      roughness: 0.68,
     }),
   );
-  floor.position.y = -0.2;
+  foundation.position.y = -0.32;
+  foundation.receiveShadow = true;
+  root.add(foundation);
+
+  addRoomFloor(rooms.open, createCanvasTexture("#eef3f8", "#d8e2ee", [], { x: 2.7, y: 1.15 }));
+  addRoomFloor(rooms.kitchen, createWoodTexture("#efd3a7", "#c99a64"));
+  addRoomFloor(rooms.relax, createWoodTexture("#e1c09a", "#b98761"));
+
+  addRoomShell();
+  addOpenSpaceRoom();
+  addKitchenRoom();
+  addRelaxRoom();
+  addRoomLights();
+}
+
+function addRoomFloor(room, texture) {
+  const floor = new THREE.Mesh(
+    new THREE.BoxGeometry(room.size.x, 0.2, room.size.z),
+    new THREE.MeshStandardMaterial({
+      map: texture,
+      roughness: 0.78,
+      metalness: 0.03,
+    }),
+  );
+  floor.position.set(room.center.x, -0.08, room.center.z);
   floor.receiveShadow = true;
   root.add(floor);
+  return floor;
+}
 
+function addRoomShell() {
   const wallMat = new THREE.MeshStandardMaterial({
-    color: "#aeb7c6",
-    roughness: 0.8,
+    color: "#d7e1ee",
+    roughness: 0.82,
+  });
+  const innerWallMat = new THREE.MeshStandardMaterial({
+    color: "#eef3f8",
+    roughness: 0.78,
   });
   const trimMat = new THREE.MeshStandardMaterial({
-    color: "#dbe4f2",
-    roughness: 0.65,
+    color: "#cbd7e6",
+    roughness: 0.62,
   });
   const glassMat = new THREE.MeshStandardMaterial({
-    color: "#d8e7ff",
+    color: "#d7ecff",
     transparent: true,
-    opacity: 0.55,
-    roughness: 0.35,
+    opacity: 0.46,
+    roughness: 0.2,
   });
 
-  const backWall = new THREE.Mesh(new THREE.BoxGeometry(12.8, 2.5, 0.3), wallMat);
-  backWall.position.set(0, 1, -4.25);
-  backWall.receiveShadow = true;
-  root.add(backWall);
+  addWallBlock(14.8, 2.55, 0.3, new THREE.Vector3(0, 1.05, -5.62), wallMat);
+  addWallBlock(0.3, 2.55, 11.35, new THREE.Vector3(-7.38, 1.05, 0), wallMat);
+  addWallBlock(0.22, 0.58, 11.35, new THREE.Vector3(7.36, 0.16, 0), trimMat);
+  addWallBlock(14.8, 0.34, 0.22, new THREE.Vector3(0, 0.03, 5.58), trimMat);
+  addWallBlock(0.22, 0.34, 11.35, new THREE.Vector3(7.36, 0.03, 0), trimMat);
 
-  const sideWall = new THREE.Mesh(new THREE.BoxGeometry(0.3, 2.5, 8.2), wallMat);
-  sideWall.position.set(-6.55, 1, 0);
-  sideWall.receiveShadow = true;
-  root.add(sideWall);
+  addWallBlock(5.35, 1.45, 0.2, new THREE.Vector3(-4.6, 0.62, 0.4), innerWallMat);
+  addWallBlock(5.35, 1.45, 0.2, new THREE.Vector3(4.6, 0.62, 0.4), innerWallMat);
+  addWallBlock(0.2, 1.45, 3.35, new THREE.Vector3(0, 0.62, 2.65), innerWallMat);
 
-  const rightRail = new THREE.Mesh(new THREE.BoxGeometry(0.22, 0.56, 8.2), trimMat);
-  rightRail.position.set(6.48, 0.14, 0);
-  rightRail.receiveShadow = true;
-  root.add(rightRail);
+  addWallBlock(1.5, 0.16, 0.12, new THREE.Vector3(-2.05, 1.45, 0.35), trimMat);
+  addWallBlock(1.5, 0.16, 0.12, new THREE.Vector3(2.05, 1.45, 0.35), trimMat);
+  addWallBlock(0.12, 0.16, 1.2, new THREE.Vector3(0, 1.45, 0.85), trimMat);
 
-  const frontRail = new THREE.Mesh(new THREE.BoxGeometry(12.8, 0.28, 0.22), trimMat);
-  frontRail.position.set(0, 0.02, 4.04);
-  frontRail.receiveShadow = true;
-  root.add(frontRail);
-
-  for (let i = 0; i < 4; i += 1) {
-    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.55, 0.78, 0.08), glassMat);
-    panel.position.set(-3.9 + i * 2.2, 1.55, -4.46);
+  for (let i = 0; i < 5; i += 1) {
+    const panel = new THREE.Mesh(new THREE.BoxGeometry(1.35, 0.78, 0.08), glassMat);
+    panel.position.set(-5.4 + i * 2.45, 1.62, -5.78);
     root.add(panel);
   }
 
-  const accentMat = new THREE.MeshStandardMaterial({
-    color: "#4f5bd5",
-    roughness: 0.55,
+  addSignPlane("OPEN SPACE", "work / collaborate / ship", "#4f5bd5", 3.25, 0.78, -4.8, 1.86, -5.8);
+  addSignPlane("KITCHEN", "coffee / snacks", "#f59e0b", 2.4, 0.62, -4.9, 1.5, 0.28);
+  addSignPlane("RELAX ROOM", "rest / recharge", "#10b981", 2.55, 0.62, 4.9, 1.5, 0.28);
+}
+
+function addOpenSpaceRoom() {
+  workStations.forEach((station, index) => {
+    addDesk(station.desk.x, station.desk.z, index, station.rotation, station.color);
+    addPad(station.point, agents[index]?.color || station.color);
   });
 
-  const sign = new THREE.Mesh(new THREE.BoxGeometry(2.4, 0.54, 0.16), accentMat);
-  sign.position.set(-2.7, 1.82, -4.54);
-  sign.castShadow = true;
-  root.add(sign);
+  addWhiteboard(2.75, -5.43, 3.7, 1.15, "TASKS", ["PLAN", "BUILD", "TEST", "DEPLOY"]);
+  addWallScreen(-4.7, -5.44, 3.2, 1.0);
+  addPlantDivider(-0.85, -0.55, 2.0);
+  addPlantDivider(1.15, -0.55, 2.0);
+  addShelf(6.1, -4.35, 0.75, Math.PI * 0.5);
+  addFloorPlant(5.75, -0.45, 0.75);
+  addFloorPlant(-6.05, -0.55, 0.65);
+}
 
-  slots.forEach((slot, index) => {
-    addDesk(slot.x + (index % 2 === 0 ? 0.55 : -0.55), slot.z - 0.5, index);
-    addPad(slot, agents[index]?.color || "#4f5bd5");
+function addKitchenRoom() {
+  addKitchenCounter(-6.15, 1.6, 0);
+  addKitchenCounter(-5.05, 1.6, 1);
+  addKitchenCounter(-3.95, 1.6, 2);
+  addFridge(-6.15, 3.45);
+  addCoffeeMachine(-5.02, 1.2);
+  addSink(-4.05, 1.16);
+  addDiningSet(-3.55, 4.2);
+  addWaterCooler(-1.0, 1.35);
+  addShelf(-6.85, 4.65, 0.62, Math.PI * 0.5);
+
+  addFoodModel("cup-coffee", new THREE.Vector3(-5.0, 0.82, 1.05), 0.18, 0.2);
+  addFoodModel("mug", new THREE.Vector3(-3.45, 0.74, 4.2), 0.18, -0.4);
+  addFoodModel("plate", new THREE.Vector3(-3.2, 0.75, 4.05), 0.2, 0);
+  addFoodModel("apple", new THREE.Vector3(-3.75, 0.82, 4.2), 0.16, 0.4);
+  addFoodModel("banana", new THREE.Vector3(-3.95, 0.82, 4.0), 0.16, 1.1);
+  addFoodModel("donut", new THREE.Vector3(-2.95, 0.82, 4.34), 0.15, 0.2);
+}
+
+function addRelaxRoom() {
+  addRug(3.65, 3.55, 3.4, 2.45, "#c7d2fe", 0.15);
+  addSofa(2.2, 3.2, 0.0);
+  addLoungeChair(4.35, 4.35, -0.6);
+  addCoffeeTable(3.45, 3.65);
+  addTvStand(6.12, 2.55);
+  addShelf(6.25, 4.6, 0.72, Math.PI * 0.5);
+  addFloorLamp(1.05, 4.75);
+  addFloorPlant(1.25, 2.0, 0.62);
+  addBeanBag(4.95, 2.0);
+  addFoodModel("cup", new THREE.Vector3(3.25, 0.62, 3.56), 0.16, 0);
+  addFoodModel("bowl", new THREE.Vector3(3.6, 0.63, 3.72), 0.16, 0.3);
+}
+
+function addRoomLights() {
+  addPendant(-4.0, 2.75, -2.25, "#fff5d6");
+  addPendant(2.5, 2.75, -2.25, "#fff5d6");
+  addPendant(-3.5, 2.55, 3.35, "#fff0c7");
+  addPendant(3.9, 2.55, 3.45, "#f1f5ff");
+}
+
+function addWallBlock(width, height, depth, position, mat) {
+  const wall = new THREE.Mesh(new THREE.BoxGeometry(width, height, depth), mat);
+  wall.position.copy(position);
+  wall.castShadow = true;
+  wall.receiveShadow = true;
+  root.add(wall);
+  return wall;
+}
+
+function createSignTexture(title, subtitle, accent = "#4f5bd5") {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = 768;
+  textureCanvas.height = 256;
+  const ctx = textureCanvas.getContext("2d");
+  ctx.fillStyle = "#ffffff";
+  ctx.fillRect(0, 0, 768, 256);
+  ctx.fillStyle = accent;
+  ctx.fillRect(0, 0, 18, 256);
+  ctx.fillStyle = "#111827";
+  ctx.font = "800 58px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI'";
+  ctx.fillText(title, 54, 105);
+  ctx.fillStyle = "#64748b";
+  ctx.font = "600 30px ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI'";
+  ctx.fillText(subtitle, 56, 162);
+  ctx.fillStyle = "rgba(79, 91, 213, 0.08)";
+  ctx.fillRect(54, 190, 560, 18);
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
+function addSignPlane(title, subtitle, accent, width, height, x, y, z) {
+  const sign = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({
+      map: createSignTexture(title, subtitle, accent),
+      transparent: true,
+    }),
+  );
+  sign.position.set(x, y, z);
+  root.add(sign);
+  return sign;
+}
+
+function addWhiteboard(x, z, width, height, title, lines) {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = 768;
+  textureCanvas.height = 384;
+  const ctx = textureCanvas.getContext("2d");
+  ctx.fillStyle = "#f8fafc";
+  ctx.fillRect(0, 0, 768, 384);
+  ctx.strokeStyle = "#334155";
+  ctx.lineWidth = 12;
+  ctx.strokeRect(18, 18, 732, 348);
+  ctx.fillStyle = "#111827";
+  ctx.font = "800 52px ui-sans-serif, system-ui";
+  ctx.fillText(title, 58, 82);
+  ctx.font = "600 34px ui-sans-serif, system-ui";
+  lines.forEach((line, index) => {
+    ctx.fillText(`• ${line}`, 62, 145 + index * 48);
+  });
+  ctx.strokeStyle = "#64748b";
+  ctx.lineWidth = 4;
+  ctx.beginPath();
+  ctx.moveTo(430, 120);
+  ctx.lineTo(620, 285);
+  ctx.stroke();
+  for (let i = 0; i < 5; i += 1) {
+    ctx.fillStyle = i % 2 ? "#fbbf24" : "#f87171";
+    ctx.fillRect(585 + (i % 2) * 58, 125 + i * 36, 34, 34);
+  }
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  const board = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: texture }),
+  );
+  board.position.set(x, 1.62, z);
+  root.add(board);
+  return board;
+}
+
+function addWallScreen(x, z, width, height) {
+  const textureCanvas = document.createElement("canvas");
+  textureCanvas.width = 768;
+  textureCanvas.height = 256;
+  const ctx = textureCanvas.getContext("2d");
+  ctx.fillStyle = "#111827";
+  ctx.fillRect(0, 0, 768, 256);
+  ctx.fillStyle = "#38bdf8";
+  ctx.shadowColor = "#38bdf8";
+  ctx.shadowBlur = 18;
+  ctx.font = "800 58px ui-monospace, SFMono-Regular, Menlo, monospace";
+  ctx.fillText("AI AGENTS", 54, 110);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = "#dbeafe";
+  ctx.font = "600 28px ui-sans-serif, system-ui";
+  ctx.fillText("WORK. COLLABORATE. EVOLVE.", 58, 165);
+  const texture = new THREE.CanvasTexture(textureCanvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+
+  const screen = new THREE.Mesh(
+    new THREE.PlaneGeometry(width, height),
+    new THREE.MeshBasicMaterial({ map: texture }),
+  );
+  screen.position.set(x, 1.72, z);
+  root.add(screen);
+  return screen;
+}
+
+function addDesk(x, z, index, rotation = 0, accent = "#4f5bd5") {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = rotation;
+  root.add(group);
+
+  addBox(group, 1.58, 0.18, 0.86, "#9b7a58", new THREE.Vector3(0, 0.56, 0), {
+    roughness: 0.68,
+  });
+  addBox(group, 1.7, 0.07, 0.94, "#6f5845", new THREE.Vector3(0, 0.71, 0), {
+    roughness: 0.62,
+  });
+  [-0.64, 0.64].forEach((legX) => {
+    [-0.32, 0.32].forEach((legZ) => {
+      addBox(group, 0.08, 0.56, 0.08, "#2f3a4a", new THREE.Vector3(legX, 0.28, legZ), {
+        roughness: 0.55,
+      });
+    });
+  });
+
+  addMonitor(group, -0.18, -0.18, accent);
+  addBox(group, 0.52, 0.035, 0.18, "#1f2937", new THREE.Vector3(0.26, 0.75, 0.22), {
+    roughness: 0.45,
+  });
+  addBox(group, 0.22, 0.025, 0.18, "#334155", new THREE.Vector3(-0.52, 0.75, 0.22), {
+    roughness: 0.45,
+  });
+  addOfficeChair(group, -0.15, 0.72, index);
+  addDeskLamp(group, 0.64, -0.22, accent);
+  if (index % 2 === 0) {
+    addFoodModel("cup-coffee", new THREE.Vector3(x + 0.42, 0.83, z + 0.1), 0.13, 0.4);
+  }
+  return group;
+}
+
+function addMonitor(parent, x, z, accent) {
+  addBox(parent, 0.08, 0.22, 0.08, "#1f2937", new THREE.Vector3(x, 0.88, z + 0.04), {
+    roughness: 0.5,
+  });
+  addBox(parent, 0.56, 0.05, 0.24, "#111827", new THREE.Vector3(x, 0.76, z + 0.08), {
+    roughness: 0.5,
+  });
+  addBox(parent, 0.7, 0.5, 0.08, "#1e293b", new THREE.Vector3(x, 1.08, z), {
+    roughness: 0.4,
+  });
+  addBox(parent, 0.56, 0.36, 0.024, accent, new THREE.Vector3(x, 1.08, z - 0.045), {
+    roughness: 0.35,
+    emissive: accent,
+    emissiveIntensity: 0.32,
   });
 }
 
-function addDesk(x, z, index) {
-  const deskMat = new THREE.MeshStandardMaterial({
-    color: index % 2 ? "#4f6f82" : "#7b6655",
-    roughness: 0.7,
+function addOfficeChair(parent, x, z, index) {
+  const color = index % 2 ? "#334155" : "#475569";
+  addBox(parent, 0.48, 0.16, 0.46, color, new THREE.Vector3(x, 0.35, z), { roughness: 0.65 });
+  addBox(parent, 0.48, 0.58, 0.14, color, new THREE.Vector3(x, 0.72, z + 0.2), {
+    roughness: 0.65,
   });
-  const desk = new THREE.Mesh(new THREE.BoxGeometry(1.18, 0.28, 0.76), deskMat);
-  desk.position.set(x, 0.23, z);
-  desk.castShadow = true;
-  desk.receiveShadow = true;
-  root.add(desk);
+  addBox(parent, 0.1, 0.33, 0.1, "#1f2937", new THREE.Vector3(x, 0.17, z), {
+    roughness: 0.5,
+  });
+}
 
-  const screen = new THREE.Mesh(
-    new THREE.BoxGeometry(0.62, 0.44, 0.08),
+function addDeskLamp(parent, x, z, accent) {
+  addBox(parent, 0.08, 0.34, 0.08, "#475569", new THREE.Vector3(x, 0.94, z), {
+    roughness: 0.45,
+  });
+  const shade = new THREE.Mesh(
+    new THREE.ConeGeometry(0.18, 0.18, 18),
     new THREE.MeshStandardMaterial({
-      color: index % 2 ? "#0097a7" : "#4f5bd5",
-      emissive: index % 2 ? "#00363b" : "#1a1f66",
-      emissiveIntensity: 0.45,
-      roughness: 0.35,
+      color: "#f8fafc",
+      emissive: accent,
+      emissiveIntensity: 0.18,
+      roughness: 0.5,
     }),
   );
-  screen.position.set(x, 0.66, z - 0.18);
-  screen.castShadow = true;
-  root.add(screen);
+  shade.position.set(x, 1.18, z);
+  shade.rotation.x = Math.PI;
+  shade.castShadow = true;
+  parent.add(shade);
 }
 
 function addPad(slot, color) {
   const pad = new THREE.Mesh(
-    new THREE.CircleGeometry(0.58, 32),
+    new THREE.CircleGeometry(0.58, 36),
     new THREE.MeshBasicMaterial({
       color,
       transparent: true,
-      opacity: 0.14,
+      opacity: 0.13,
       depthWrite: false,
     }),
   );
   pad.rotation.x = -Math.PI / 2;
-  pad.position.set(slot.x, 0.011, slot.z);
+  pad.position.set(slot.x, 0.025, slot.z);
   root.add(pad);
+}
+
+function addPlantDivider(x, z, width) {
+  addBox(root, width, 0.5, 0.42, "#d6d3d1", new THREE.Vector3(x, 0.26, z), {
+    roughness: 0.78,
+  });
+  for (let i = 0; i < 5; i += 1) {
+    const leaf = new THREE.Mesh(
+      new THREE.ConeGeometry(0.12, 0.65, 8),
+      new THREE.MeshStandardMaterial({ color: i % 2 ? "#15803d" : "#22c55e", roughness: 0.7 }),
+    );
+    leaf.position.set(x - width * 0.38 + i * (width / 4.5), 0.8, z);
+    leaf.rotation.x = 0.25 + i * 0.08;
+    leaf.rotation.z = i % 2 ? 0.35 : -0.35;
+    leaf.castShadow = true;
+    root.add(leaf);
+  }
+}
+
+function addFloorPlant(x, z, scale = 0.7) {
+  const pot = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.26 * scale, 0.34 * scale, 0.42 * scale, 16),
+    new THREE.MeshStandardMaterial({ color: "#8b5e3c", roughness: 0.78 }),
+  );
+  pot.position.set(x, 0.22 * scale, z);
+  pot.castShadow = true;
+  pot.receiveShadow = true;
+  root.add(pot);
+  for (let i = 0; i < 7; i += 1) {
+    const leaf = new THREE.Mesh(
+      new THREE.ConeGeometry(0.09 * scale, 0.75 * scale, 8),
+      new THREE.MeshStandardMaterial({ color: i % 2 ? "#16a34a" : "#65a30d", roughness: 0.72 }),
+    );
+    leaf.position.set(x, 0.72 * scale, z);
+    leaf.rotation.z = (i / 7) * Math.PI * 2;
+    leaf.rotation.x = 0.35;
+    leaf.castShadow = true;
+    root.add(leaf);
+  }
+}
+
+function addShelf(x, z, scale = 0.72, rotation = 0) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = rotation;
+  group.scale.setScalar(scale);
+  root.add(group);
+  addBox(group, 0.9, 1.65, 0.28, "#5b4636", new THREE.Vector3(0, 0.82, 0), { roughness: 0.68 });
+  addBox(group, 0.8, 1.46, 0.24, "#f8fafc", new THREE.Vector3(0, 0.86, -0.02), {
+    roughness: 0.8,
+  });
+  for (let i = 0; i < 4; i += 1) {
+    addBox(group, 0.82, 0.055, 0.3, "#6f5845", new THREE.Vector3(0, 0.32 + i * 0.38, 0), {
+      roughness: 0.65,
+    });
+  }
+  for (let i = 0; i < 9; i += 1) {
+    addBox(
+      group,
+      0.07,
+      0.27 + (i % 3) * 0.04,
+      0.18,
+      ["#4f5bd5", "#ef4444", "#10b981", "#f59e0b"][i % 4],
+      new THREE.Vector3(-0.32 + i * 0.08, 0.44 + (i % 3) * 0.38, -0.16),
+      { roughness: 0.7 },
+    );
+  }
+}
+
+function addKitchenCounter(x, z, index) {
+  addBox(root, 1.0, 0.74, 0.68, "#d6a86e", new THREE.Vector3(x, 0.37, z), { roughness: 0.7 });
+  addBox(root, 1.04, 0.08, 0.72, "#f8fafc", new THREE.Vector3(x, 0.78, z), { roughness: 0.45 });
+  addBox(root, 0.08, 0.55, 0.03, "#b77943", new THREE.Vector3(x - 0.24, 0.38, z - 0.35), {
+    roughness: 0.7,
+  });
+  addBox(root, 0.08, 0.55, 0.03, "#b77943", new THREE.Vector3(x + 0.24, 0.38, z - 0.35), {
+    roughness: 0.7,
+  });
+  if (index === 2) {
+    addBox(root, 0.4, 0.06, 0.34, "#94a3b8", new THREE.Vector3(x, 0.84, z), {
+      roughness: 0.35,
+      metalness: 0.2,
+    });
+  }
+}
+
+function addFridge(x, z) {
+  addBox(root, 0.74, 1.55, 0.64, "#e2e8f0", new THREE.Vector3(x, 0.78, z), {
+    roughness: 0.45,
+    metalness: 0.08,
+  });
+  addBox(root, 0.03, 1.18, 0.04, "#64748b", new THREE.Vector3(x - 0.33, 0.78, z - 0.34), {
+    roughness: 0.45,
+  });
+  addBox(root, 0.64, 0.035, 0.04, "#cbd5e1", new THREE.Vector3(x, 1.12, z - 0.35), {
+    roughness: 0.45,
+  });
+}
+
+function addCoffeeMachine(x, z) {
+  addBox(root, 0.42, 0.36, 0.28, "#1f2937", new THREE.Vector3(x, 0.98, z), {
+    roughness: 0.35,
+  });
+  addBox(root, 0.24, 0.12, 0.04, "#38bdf8", new THREE.Vector3(x, 1.05, z - 0.16), {
+    emissive: "#0ea5e9",
+    emissiveIntensity: 0.35,
+    roughness: 0.35,
+  });
+}
+
+function addSink(x, z) {
+  const bowl = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.23, 0.2, 0.08, 24),
+    new THREE.MeshStandardMaterial({ color: "#cbd5e1", roughness: 0.35, metalness: 0.25 }),
+  );
+  bowl.position.set(x, 0.88, z);
+  bowl.castShadow = true;
+  root.add(bowl);
+  addBox(root, 0.07, 0.28, 0.06, "#64748b", new THREE.Vector3(x + 0.24, 1.02, z), {
+    roughness: 0.35,
+    metalness: 0.2,
+  });
+}
+
+function addDiningSet(x, z) {
+  addBox(root, 1.75, 0.12, 1.05, "#f2d4a3", new THREE.Vector3(x, 0.62, z), { roughness: 0.7 });
+  [-0.62, 0.62].forEach((legX) => {
+    [-0.35, 0.35].forEach((legZ) => {
+      addBox(root, 0.08, 0.58, 0.08, "#ad7f51", new THREE.Vector3(x + legX, 0.31, z + legZ), {
+        roughness: 0.68,
+      });
+    });
+  });
+  [
+    [x - 1.0, z, Math.PI * 0.5],
+    [x + 1.0, z, -Math.PI * 0.5],
+    [x, z - 0.72, 0],
+    [x, z + 0.72, Math.PI],
+  ].forEach(([cx, cz, rotation], index) => {
+    const group = new THREE.Group();
+    group.position.set(cx, 0, cz);
+    group.rotation.y = rotation;
+    root.add(group);
+    addBox(group, 0.42, 0.12, 0.42, "#e2e8f0", new THREE.Vector3(0, 0.34, 0), {
+      roughness: 0.72,
+    });
+    addBox(group, 0.42, 0.48, 0.1, index % 2 ? "#d1d5db" : "#f8fafc", new THREE.Vector3(0, 0.66, 0.2), {
+      roughness: 0.72,
+    });
+  });
+}
+
+function addWaterCooler(x, z) {
+  addBox(root, 0.34, 0.72, 0.34, "#e2e8f0", new THREE.Vector3(x, 0.36, z), { roughness: 0.58 });
+  const bottle = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.18, 0.18, 0.52, 18),
+    new THREE.MeshStandardMaterial({
+      color: "#bae6fd",
+      transparent: true,
+      opacity: 0.72,
+      roughness: 0.2,
+    }),
+  );
+  bottle.position.set(x, 0.98, z);
+  bottle.castShadow = true;
+  root.add(bottle);
+}
+
+function addRug(x, z, width, depth, color, opacity = 0.2) {
+  const rug = new THREE.Mesh(
+    new THREE.BoxGeometry(width, 0.035, depth),
+    new THREE.MeshStandardMaterial({
+      color,
+      transparent: true,
+      opacity,
+      roughness: 0.9,
+    }),
+  );
+  rug.position.set(x, 0.035, z);
+  rug.receiveShadow = true;
+  root.add(rug);
+}
+
+function addSofa(x, z, rotation) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = rotation;
+  root.add(group);
+  addBox(group, 1.7, 0.42, 0.62, "#94a3b8", new THREE.Vector3(0, 0.35, 0), { roughness: 0.78 });
+  addBox(group, 1.72, 0.76, 0.22, "#64748b", new THREE.Vector3(0, 0.68, 0.3), { roughness: 0.78 });
+  addBox(group, 0.24, 0.48, 0.68, "#64748b", new THREE.Vector3(-0.96, 0.44, 0), { roughness: 0.78 });
+  addBox(group, 0.24, 0.48, 0.68, "#64748b", new THREE.Vector3(0.96, 0.44, 0), { roughness: 0.78 });
+  addBox(group, 0.38, 0.18, 0.14, "#facc15", new THREE.Vector3(-0.32, 0.72, -0.18), {
+    roughness: 0.78,
+  });
+  addBox(group, 0.38, 0.18, 0.14, "#38bdf8", new THREE.Vector3(0.28, 0.72, -0.18), {
+    roughness: 0.78,
+  });
+}
+
+function addLoungeChair(x, z, rotation) {
+  const group = new THREE.Group();
+  group.position.set(x, 0, z);
+  group.rotation.y = rotation;
+  root.add(group);
+  addBox(group, 0.64, 0.32, 0.72, "#a78bfa", new THREE.Vector3(0, 0.32, 0), { roughness: 0.78 });
+  addBox(group, 0.66, 0.68, 0.18, "#7c3aed", new THREE.Vector3(0, 0.68, 0.28), { roughness: 0.78 });
+}
+
+function addCoffeeTable(x, z) {
+  addBox(root, 1.2, 0.12, 0.64, "#7c5f46", new THREE.Vector3(x, 0.46, z), { roughness: 0.68 });
+  addBox(root, 1.28, 0.04, 0.72, "#e2e8f0", new THREE.Vector3(x, 0.55, z), {
+    roughness: 0.25,
+    metalness: 0.08,
+  });
+  [-0.48, 0.48].forEach((legX) => {
+    [-0.22, 0.22].forEach((legZ) => {
+      addBox(root, 0.07, 0.42, 0.07, "#4b5563", new THREE.Vector3(x + legX, 0.24, z + legZ), {
+        roughness: 0.55,
+      });
+    });
+  });
+}
+
+function addTvStand(x, z) {
+  addBox(root, 1.6, 0.34, 0.46, "#6f5845", new THREE.Vector3(x, 0.24, z), { roughness: 0.68 });
+  const tv = new THREE.Mesh(
+    new THREE.BoxGeometry(1.48, 0.84, 0.08),
+    new THREE.MeshStandardMaterial({
+      color: "#111827",
+      roughness: 0.35,
+      emissive: "#12213d",
+      emissiveIntensity: 0.45,
+    }),
+  );
+  tv.position.set(x, 0.92, z - 0.24);
+  tv.castShadow = true;
+  root.add(tv);
+  addBox(root, 1.18, 0.56, 0.025, "#4f5bd5", new THREE.Vector3(x, 0.92, z - 0.29), {
+    emissive: "#4f5bd5",
+    emissiveIntensity: 0.28,
+    roughness: 0.35,
+  });
+}
+
+function addFloorLamp(x, z) {
+  addBox(root, 0.08, 1.15, 0.08, "#475569", new THREE.Vector3(x, 0.62, z), {
+    roughness: 0.45,
+  });
+  const shade = new THREE.Mesh(
+    new THREE.ConeGeometry(0.32, 0.38, 24),
+    new THREE.MeshStandardMaterial({
+      color: "#fef3c7",
+      emissive: "#fde68a",
+      emissiveIntensity: 0.42,
+      roughness: 0.55,
+    }),
+  );
+  shade.position.set(x, 1.35, z);
+  shade.rotation.x = Math.PI;
+  shade.castShadow = true;
+  root.add(shade);
+}
+
+function addBeanBag(x, z) {
+  const bean = new THREE.Mesh(
+    new THREE.SphereGeometry(0.48, 24, 14),
+    new THREE.MeshStandardMaterial({ color: "#f97316", roughness: 0.9 }),
+  );
+  bean.position.set(x, 0.36, z);
+  bean.scale.set(1.18, 0.58, 0.95);
+  bean.castShadow = true;
+  bean.receiveShadow = true;
+  root.add(bean);
+}
+
+function addPendant(x, y, z, color) {
+  addBox(root, 0.035, 0.52, 0.035, "#94a3b8", new THREE.Vector3(x, y + 0.25, z), {
+    roughness: 0.45,
+  });
+  const lamp = new THREE.Mesh(
+    new THREE.CylinderGeometry(0.24, 0.3, 0.22, 24),
+    new THREE.MeshStandardMaterial({
+      color,
+      emissive: color,
+      emissiveIntensity: 0.45,
+      roughness: 0.55,
+    }),
+  );
+  lamp.position.set(x, y, z);
+  lamp.castShadow = true;
+  root.add(lamp);
+}
+
+function addFoodModel(name, position, scale = 0.16, rotation = 0) {
+  const holder = new THREE.Group();
+  holder.position.copy(position);
+  holder.rotation.y = rotation;
+  holder.scale.setScalar(scale);
+  root.add(holder);
+
+  const path = `/office/assets/kenney-food/${name}.glb`;
+  const addScene = (asset) => {
+    const model = asset.clone(true);
+    model.traverse((child) => {
+      if (!child.isMesh) return;
+      child.castShadow = true;
+      child.receiveShadow = true;
+    });
+    holder.add(model);
+    loadedAssetNames.add(name);
+  };
+
+  if (gltfCache.has(path)) {
+    addScene(gltfCache.get(path));
+    return holder;
+  }
+
+  gltfLoader.load(
+    path,
+    (gltf) => {
+      gltfCache.set(path, gltf.scene);
+      addScene(gltf.scene);
+    },
+    undefined,
+    () => {
+      addBox(root, 0.16, 0.1, 0.16, "#f59e0b", position.clone(), { roughness: 0.7 });
+    },
+  );
+  return holder;
 }
 
 function material(color, options = {}) {
@@ -580,8 +1327,11 @@ function createAgentModel(agent) {
   holder.userData.agentIndex = index;
   holder.position.copy(slots[agent.slot]);
   holder.userData.target = slots[agent.slot].clone();
+  holder.userData.faceTarget = workStations[agent.slot]?.desk?.clone() || null;
   scene.add(holder);
   agent.group = holder;
+  agent.room = "open";
+  agent.activity = agent.state === "working" ? "typing" : "focused";
 
   const hit = new THREE.Mesh(
     new THREE.CylinderGeometry(0.72, 0.72, 2.15, 16),
@@ -955,6 +1705,7 @@ function renderChatMessages() {
         ? "Team is ready. Send a task and Atlas will route it."
         : `${agentByChatId(selectedChatId)?.name || "Agent"} is ready.`;
     chatMessages.appendChild(empty);
+    scrollChatToBottom();
     return;
   }
 
@@ -1006,7 +1757,18 @@ function renderChatMessages() {
     }
   });
 
-  chatMessages.scrollTop = chatMessages.scrollHeight;
+  scrollChatToBottom();
+}
+
+function scrollChatToBottom() {
+  const scroll = () => {
+    chatMessages.scrollTop = chatMessages.scrollHeight;
+  };
+  scroll();
+  requestAnimationFrame(() => {
+    scroll();
+    requestAnimationFrame(scroll);
+  });
 }
 
 function createPublishCard(chatId, message) {
@@ -1114,6 +1876,7 @@ function setPanelTab(tab) {
   activityTab.setAttribute("aria-selected", String(!showChat));
   chatView.hidden = !showChat;
   activityView.hidden = showChat;
+  if (showChat) scrollChatToBottom();
 }
 
 async function requestAgentChat(chatId, text) {
@@ -1484,32 +2247,156 @@ function handleParentMessage(event) {
   selectAgentById(agentId);
 }
 
-function assignTask(index = selectedIndex) {
-  const agent = agents[index];
-  if (!agent || !agent.active) return;
-  const task = tasks[Math.floor(Math.random() * tasks.length)];
-  agent.state = "working";
-  agent.bubble = task;
-  queued = Math.max(0, queued - 1);
-  queueCount.textContent = String(queued).padStart(2, "0");
-  setAgentTarget(agent, randomAdjacentSlot(agent.slot));
-  addActivity(agent, "working", task);
-  renderRoster();
-
-  window.setTimeout(() => {
-    if (!agent.active) return;
-    agent.state = "happy";
-    agent.bubble = "Done";
-    queued += 1;
-    queueCount.textContent = String(queued).padStart(2, "0");
-    addActivity(agent, "completed", `${task} moved to review.`);
-    renderRoster();
-  }, 4200);
+function bubbleForDestination(destination, index) {
+  const bubblesForDestination = destination.bubbles || [destination.activity || "Moving"];
+  return bubblesForDestination[index % bubblesForDestination.length];
 }
 
-function setAgentTarget(agent, slotIndex) {
-  agent.slot = slotIndex;
-  agent.group?.userData.target.copy(slots[slotIndex]);
+function routeToDestination(agent, destination) {
+  const targetRoom = destination.room || "open";
+  const sourceRoom = agent.room || "open";
+  const route = [];
+
+  if (sourceRoom !== targetRoom) {
+    if (sourceRoom !== "open" && roomGateways[sourceRoom]) {
+      route.push(roomGateways[sourceRoom].clone());
+    }
+    if (targetRoom !== "open" && roomGateways[targetRoom]) {
+      route.push(roomGateways[targetRoom].clone());
+    } else if (sourceRoom !== "open") {
+      route.push(roomGateways.open.clone());
+    }
+  }
+
+  route.push(destination.point.clone());
+  return route;
+}
+
+function applyAgentRoute(agent, route, finalFace, instant = false) {
+  if (!agent.group || !route.length) return;
+  const target = agent.group.userData.target;
+  agent.group.userData.route = [];
+  agent.group.userData.faceTarget = finalFace?.clone() || null;
+
+  if (instant) {
+    const last = route[route.length - 1];
+    agent.group.position.copy(last);
+    target.copy(last);
+    return;
+  }
+
+  const [next, ...rest] = route;
+  target.copy(next);
+  agent.group.userData.route = rest;
+}
+
+function setAgentDestination(agent, destination, options = {}) {
+  const index = agents.indexOf(agent);
+  const route = routeToDestination(agent, destination);
+  agent.room = destination.room || "open";
+  agent.activity = destination.kind || "focused";
+  agent.destinationId = destination.id || `${agent.room}-${agent.activity}`;
+  agent.state = options.state || "focused";
+  agent.bubble = options.bubble || bubbleForDestination(destination, Math.max(index, 0));
+  applyAgentRoute(agent, route, destination.face || null, options.instant);
+}
+
+function workDestination(slotIndex) {
+  const normalizedIndex = ((slotIndex % workStations.length) + workStations.length) % workStations.length;
+  const station = workStations[normalizedIndex];
+  return {
+    id: `work-${normalizedIndex}`,
+    room: "open",
+    kind: "typing",
+    point: station.point,
+    face: station.desk,
+    bubbles: [station.activity],
+  };
+}
+
+function setAgentTarget(agent, slotIndex, options = {}) {
+  const normalizedIndex = ((slotIndex % workStations.length) + workStations.length) % workStations.length;
+  agent.slot = normalizedIndex;
+  setAgentDestination(agent, workDestination(normalizedIndex), {
+    state: options.state || "working",
+    bubble: options.bubble,
+    instant: options.instant,
+  });
+}
+
+function pickIdleDestination(agent, index, preferSpread = false) {
+  const spread = ["open-whiteboard", "kitchen-coffee", "relax-sofa", "open-plants", "kitchen-table"];
+  if (preferSpread) {
+    return idleDestinations.find((destination) => destination.id === spread[index % spread.length]);
+  }
+
+  const candidates = idleDestinations.filter((destination) => destination.id !== agent.destinationId);
+  return candidates[Math.floor(Math.random() * candidates.length)] || idleDestinations[index % idleDestinations.length];
+}
+
+function assignIdleDestination(agent, index = agents.indexOf(agent), instant = false) {
+  if (!agent.active || teamWorkActive) return;
+  const destination = pickIdleDestination(agent, Math.max(index, 0), instant);
+  setAgentDestination(agent, destination, {
+    state: destination.kind === "rest" ? "idle" : "focused",
+    instant,
+  });
+}
+
+function initializeAgentDestinations() {
+  agents.forEach((agent, index) => {
+    if (!agent.active) return;
+    if (agent.state === "working") {
+      setAgentTarget(agent, index, {
+        state: "working",
+        bubble: agent.bubble || "Working",
+        instant: true,
+      });
+      return;
+    }
+    assignIdleDestination(agent, index, true);
+  });
+}
+
+function assignTask(index = selectedIndex) {
+  const lead = agents[index];
+  if (!lead || !lead.active || teamWorkActive) return;
+  const task = tasks[Math.floor(Math.random() * tasks.length)];
+  teamWorkActive = true;
+  queued = Math.max(0, queued - 1);
+  queueCount.textContent = String(queued).padStart(2, "0");
+
+  const supportBubbles = ["Joining", "Researching", "Building", "Checking", "Publishing"];
+  agents.forEach((agent, agentIndex) => {
+    if (!agent.active) return;
+    setAgentTarget(agent, agentIndex, {
+      state: "working",
+      bubble: agentIndex === index ? task : supportBubbles[agentIndex % supportBubbles.length],
+    });
+  });
+
+  addActivity(lead, "working", `${task}: team moved to Open Space.`);
+  renderRoster();
+  window.clearTimeout(teamWorkTimer);
+
+  teamWorkTimer = window.setTimeout(() => {
+    agents.forEach((agent, agentIndex) => {
+      if (!agent.active) return;
+      agent.state = "happy";
+      agent.activity = "celebrate";
+      agent.bubble = agentIndex === index ? "Done" : "Synced";
+    });
+    queued += 1;
+    queueCount.textContent = String(queued).padStart(2, "0");
+    addActivity(lead, "completed", `${task} moved to review.`);
+    renderRoster();
+
+    window.setTimeout(() => {
+      teamWorkActive = false;
+      agents.forEach((agent, agentIndex) => assignIdleDestination(agent, agentIndex));
+      renderRoster();
+    }, 2400);
+  }, 7600);
 }
 
 function randomAdjacentSlot(current) {
@@ -1518,14 +2405,12 @@ function randomAdjacentSlot(current) {
 }
 
 function shuffleTeam() {
-  const order = [0, 1, 2, 3, 4].sort(() => Math.random() - 0.5);
   agents.forEach((agent, index) => {
     if (!agent.active) return;
     agent.state = "focused";
-    agent.bubble = "Moving";
-    setAgentTarget(agent, order[index % order.length]);
+    assignIdleDestination(agent, index);
   });
-  addActivity(agents[selectedIndex], "moved", "Workspace seats rotated.");
+  addActivity(agents[selectedIndex], "moved", "Agents started roaming between rooms.");
   renderRoster();
 }
 
@@ -1533,6 +2418,7 @@ function celebrateTeam() {
   agents.forEach((agent) => {
     if (!agent.active) return;
     agent.state = "happy";
+    agent.activity = "celebrate";
     agent.bubble = "Nice";
   });
   addActivity(agents[selectedIndex], "win", "Team milestone recorded.");
@@ -1548,8 +2434,8 @@ function hireAgent() {
     if (inactive.group) {
       inactive.group.visible = true;
       inactive.group.position.set(6.8, 0, 3.2);
-      inactive.group.userData.target.copy(slots[inactive.slot]);
     }
+    assignIdleDestination(inactive, agents.indexOf(inactive));
     addActivity(inactive, "hired", `${inactive.role} joined the team.`);
   } else {
     const target = agents[selectedIndex];
@@ -1562,9 +2448,9 @@ function hireAgent() {
 
 function resetView() {
   if (!controls) return;
-  camera.position.set(7.2, 6.4, 8.6);
+  camera.position.set(9.8, 8.1, 10.8);
   camera.zoom = 1;
-  controls.target.set(0, 0.8, 0);
+  controls.target.set(0, 0.7, 0.2);
   resize();
   controls.update();
 }
@@ -1593,9 +2479,12 @@ function updateBubble(agent) {
   element.style.top = `${y}px`;
   element.style.setProperty("--bubble-lift", "8px");
   element.innerHTML = `<strong>${agent.name}</strong>${agent.bubble}`;
+  const visibleActivity = ["coffee", "talk", "rest", "read", "screen", "typing", "celebrate"].includes(
+    agent.activity,
+  );
   element.classList.toggle(
     "visible",
-    agent.state === "working" || agent.state === "happy" || agent.state === "focused",
+    agent.state === "working" || agent.state === "happy" || agent.state === "focused" || visibleActivity,
   );
 }
 
@@ -1640,13 +2529,19 @@ function animateRig(rig, agent, moving, elapsed, index) {
   const working = agent.state === "working";
   const happy = agent.state === "happy";
   const focused = agent.state === "focused";
+  const activity = agent.activity || "";
+  const coffee = activity === "coffee";
+  const talking = activity === "talk";
+  const resting = activity === "rest";
+  const reading = activity === "read" || activity === "screen";
+  const typing = activity === "typing" || working;
 
   rig.root.rotation.z = happy ? Math.sin(elapsed * 7 + index) * 0.055 : idle * 0.012;
   rig.torso.rotation.z = moving ? gait * 0.035 : idle * 0.018;
-  rig.head.rotation.x = working ? -0.12 + smallGait * 0.035 : idle * 0.035;
+  rig.head.rotation.x = typing || reading ? -0.12 + smallGait * 0.035 : idle * 0.035;
   rig.head.rotation.z = happy ? Math.sin(elapsed * 8 + index) * 0.09 : idle * 0.025;
 
-  const stride = moving ? 0.62 : working ? 0.12 : 0;
+  const stride = moving ? 0.62 : typing ? 0.12 : 0;
   rig.leftLeg.rotation.x = gait * stride;
   rig.rightLeg.rotation.x = -gait * stride;
   rig.leftLeg.rotation.z = moving ? 0.02 : 0;
@@ -1662,10 +2557,30 @@ function animateRig(rig, agent, moving, elapsed, index) {
     rig.rightArm.rotation.x = gait * 0.58;
     rig.leftArm.rotation.z = 0.08;
     rig.rightArm.rotation.z = -0.08;
-  } else if (working) {
+  } else if (typing) {
     rig.leftArm.rotation.x = -0.48 + smallGait * 0.2;
     rig.rightArm.rotation.x = 0.34 - smallGait * 0.22;
     rig.leftArm.rotation.z = 0.12;
+    rig.rightArm.rotation.z = -0.16;
+  } else if (coffee) {
+    rig.leftArm.rotation.x = -0.08 + idle * 0.08;
+    rig.rightArm.rotation.x = -0.86 + smallGait * 0.08;
+    rig.leftArm.rotation.z = 0.1;
+    rig.rightArm.rotation.z = -0.28;
+  } else if (talking) {
+    rig.leftArm.rotation.x = -0.22 + smallGait * 0.16;
+    rig.rightArm.rotation.x = -0.08 - smallGait * 0.16;
+    rig.leftArm.rotation.z = 0.36 + idle * 0.08;
+    rig.rightArm.rotation.z = -0.34 - idle * 0.08;
+  } else if (resting) {
+    rig.leftArm.rotation.x = 0.18 + idle * 0.04;
+    rig.rightArm.rotation.x = -0.12 - idle * 0.04;
+    rig.leftArm.rotation.z = 0.18;
+    rig.rightArm.rotation.z = -0.18;
+  } else if (reading) {
+    rig.leftArm.rotation.x = -0.42 + idle * 0.04;
+    rig.rightArm.rotation.x = -0.36 - idle * 0.04;
+    rig.leftArm.rotation.z = 0.16;
     rig.rightArm.rotation.z = -0.16;
   } else {
     rig.leftArm.rotation.x = focused ? -0.18 + idle * 0.06 : idle * 0.045;
@@ -1681,7 +2596,7 @@ function animateRig(rig, agent, moving, elapsed, index) {
   if (happy) {
     rig.mouth.scale.x = 1.45 + Math.sin(elapsed * 6 + index) * 0.12;
     rig.mouth.scale.y = 1.45;
-  } else if (working) {
+  } else if (typing || talking || coffee) {
     rig.mouth.scale.x = 0.75 + Math.sin(elapsed * 9 + index) * 0.08;
     rig.mouth.scale.y = 0.72;
   } else {
@@ -1708,11 +2623,18 @@ function updateAgents(delta, elapsed) {
     if (Math.abs(group.position.z - target.z) < 0.004) group.position.z = target.z;
 
     const travelDistance = Math.hypot(group.position.x - previousX, group.position.z - previousZ);
-    const distanceToTarget = Math.hypot(group.position.x - target.x, group.position.z - target.z);
+    let distanceToTarget = Math.hypot(group.position.x - target.x, group.position.z - target.z);
+    if (distanceToTarget < 0.045 && group.userData.route?.length) {
+      target.copy(group.userData.route.shift());
+      distanceToTarget = Math.hypot(group.position.x - target.x, group.position.z - target.z);
+    }
     const moving = travelDistance > 0.001 || distanceToTarget > 0.035;
 
+    const faceTarget = group.userData.faceTarget;
     const desiredAngle = moving
       ? Math.atan2(target.x - group.position.x, target.z - group.position.z)
+      : faceTarget
+        ? Math.atan2(faceTarget.x - group.position.x, faceTarget.z - group.position.z)
       : Math.atan2(camera.position.x - group.position.x, camera.position.z - group.position.z);
     const turnSpeed = moving ? 8 : 2.4;
     group.rotation.y = lerpAngle(
@@ -1752,7 +2674,7 @@ function resize() {
   const { clientWidth, clientHeight } = canvas.parentElement;
   renderer.setSize(clientWidth, clientHeight, false);
   const aspect = clientWidth / Math.max(clientHeight, 1);
-  const viewHeight = aspect < 0.9 ? 15.4 : clientWidth < 720 ? 11.2 : 9.2;
+  const viewHeight = aspect < 0.9 ? 18.2 : clientWidth < 720 ? 15.8 : 13.4;
   camera.top = viewHeight / 2;
   camera.bottom = -viewHeight / 2;
   camera.left = (-viewHeight * aspect) / 2;
@@ -1768,19 +2690,29 @@ function updateClock() {
 }
 
 function startAutomation() {
+  roamingTimer = window.setInterval(() => {
+    if (teamWorkActive) return;
+    agents.forEach((agent, index) => {
+      if (!agent.active || Math.random() < 0.48) return;
+      assignIdleDestination(agent, index);
+    });
+    renderRoster();
+  }, 6800);
+
   window.setInterval(() => {
+    if (teamWorkActive) return;
     const active = agents
       .map((agent, index) => ({ agent, index }))
       .filter(({ agent }) => agent.active);
     const pick = active[Math.floor(Math.random() * active.length)];
     if (pick) assignTask(pick.index);
-  }, 12000);
+  }, 24000);
 }
 
 function animate() {
   if (!renderer || !controls) return;
-  const elapsed = clockTimer.getElapsedTime();
   const delta = Math.min(clockTimer.getDelta(), 0.05);
+  const elapsed = clockTimer.elapsedTime;
   updateAgents(delta, elapsed);
   controls.update();
   renderer.render(scene, camera);
@@ -1807,6 +2739,9 @@ if (selectedChatId === "all") {
     restoredAgent.state = "focused";
     restoredAgent.bubble = "Focused";
   }
+}
+if (renderer) {
+  initializeAgentDestinations();
 }
 
 document.querySelector("#assignBtn").addEventListener("click", () => assignTask());
@@ -1837,6 +2772,20 @@ addActivity(agents[0], "online", "Team workspace is ready.");
 updateClock();
 window.setInterval(updateClock, 15000);
 resize();
+startAutomation();
 animate();
 
-window.agentOfficeDebug = { agents, camera, controls, renderer, scene };
+window.agentOfficeDebug = {
+  agents,
+  camera,
+  controls,
+  renderer,
+  scene,
+  rooms,
+  workStations,
+  idleDestinations,
+  loadedAssetNames,
+  assignTask,
+  assignIdleDestination,
+  resetView,
+};

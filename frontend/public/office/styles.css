@@ -47,7 +47,7 @@ button {
 
 .app-shell {
   height: 100dvh;
-  min-height: 0;
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
   overflow: hidden;
@@ -298,11 +298,12 @@ button {
 }
 
 .workspace {
-  flex: 1;
+  flex: 0 0 calc(100vh - 68px);
   display: grid;
   grid-template-columns: 260px minmax(0, 1fr) 8px var(--chat-panel-width);
   height: calc(100vh - 68px);
-  min-height: calc(100vh - 68px);
+  min-height: 0;
+  max-height: calc(100vh - 68px);
   min-width: 0;
   overflow: hidden;
 }
@@ -611,7 +612,9 @@ body.resizing-chat {
 .agent-chat-panel {
   padding: 10px 12px 12px;
   height: 100%;
+  max-height: 100%;
   min-height: 0;
+  overflow: hidden;
 }
 
 .chat-tabs {
@@ -700,6 +703,8 @@ body.resizing-chat {
 }
 
 .chat-view {
+  height: 100%;
+  max-height: 100%;
   display: grid;
   grid-template-rows: minmax(0, 1fr) auto;
   gap: 10px;
@@ -731,9 +736,12 @@ body.resizing-chat {
 }
 
 .chat-messages {
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
   overflow-x: hidden;
   overflow-y: auto;
+  overflow-anchor: none;
   overscroll-behavior: contain;
   padding: 2px 8px 10px 2px;
   scrollbar-color: #aab2c2 transparent;
@@ -1070,9 +1078,11 @@ body.embedded-dashboard {
 
 .embedded-dashboard .workspace {
   --chat-panel-width: 330px;
+  flex-basis: calc(100vh - 58px);
   grid-template-columns: minmax(0, 1fr) 8px var(--chat-panel-width);
   height: calc(100vh - 58px);
-  min-height: calc(100vh - 58px);
+  min-height: 0;
+  max-height: calc(100vh - 58px);
 }
 
 .embedded-dashboard .roster-panel {
@@ -1093,7 +1103,10 @@ body.embedded-dashboard {
 .embedded-dashboard .agent-chat-panel {
   grid-column: 3;
   grid-row: 1;
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
+  overflow: hidden;
   padding: 12px 18px 18px;
 }
 
@@ -1140,15 +1153,20 @@ body.embedded-dashboard {
 }
 
 .embedded-dashboard .chat-view {
-  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+  max-height: 100%;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   gap: 9px;
   min-height: 0;
   overflow: hidden;
 }
 
 .embedded-dashboard .chat-messages {
+  height: 100%;
+  max-height: 100%;
   min-height: 0;
   overflow-y: auto;
+  overflow-anchor: none;
   padding-right: 7px;
 }
 
@@ -1161,13 +1179,32 @@ body.embedded-dashboard {
 }
 
 @media (max-width: 1040px) {
+  html,
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
+  .app-shell {
+    height: auto;
+    min-height: 100vh;
+    overflow: visible;
+  }
+
   .workspace {
+    flex: 1 1 auto;
     grid-template-columns: 220px minmax(0, 1fr);
     grid-template-rows: minmax(520px, 1fr) 250px;
+    height: auto;
+    max-height: none;
+    min-height: calc(100vh - 68px);
+    overflow: visible;
   }
 
   .agent-chat-panel {
     grid-column: 1 / -1;
+    height: 300px;
+    max-height: none;
     border-left: 0;
     border-top: 1px solid var(--line);
   }
@@ -1185,7 +1222,7 @@ body.embedded-dashboard {
   }
 
   .chat-view {
-    min-height: 250px;
+    min-height: 0;
   }
 
   .activity-item {
@@ -1257,6 +1294,42 @@ body.embedded-dashboard {
   .scene-hud > div:nth-child(2),
   .scene-hud > div:nth-child(3) {
     display: none;
+  }
+
+  .embedded-dashboard .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(430px, 58vh) 300px;
+    height: auto;
+    max-height: none;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .embedded-dashboard .stage {
+    min-height: 430px;
+  }
+
+  .embedded-dashboard .agent-chat-panel {
+    grid-column: 1;
+    height: 300px;
+    max-height: none;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 10px 12px 12px;
+  }
+
+  .embedded-dashboard .chat-resize-handle {
+    display: none;
+  }
+
+  .embedded-dashboard .speech-bubble {
+    max-width: 156px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .embedded-dashboard .speech-bubble strong {
+    font-size: 9px;
   }
 }
 
@@ -1426,5 +1499,57 @@ body.embedded-dashboard {
   .embedded-dashboard .agent-token img {
     width: 42px;
     height: 42px;
+  }
+}
+
+@media (max-width: 720px) {
+  body.embedded-dashboard {
+    height: auto;
+    overflow: auto;
+  }
+
+  .embedded-dashboard .app-shell {
+    height: auto;
+    min-height: 100dvh;
+    overflow: visible;
+  }
+
+  .embedded-dashboard .workspace {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(430px, 58vh) 300px;
+    height: auto;
+    max-height: none;
+    min-height: auto;
+    overflow: visible;
+  }
+
+  .embedded-dashboard .stage {
+    grid-column: 1;
+    grid-row: 1;
+    min-height: 430px;
+  }
+
+  .embedded-dashboard .chat-resize-handle {
+    display: none;
+  }
+
+  .embedded-dashboard .agent-chat-panel {
+    grid-column: 1;
+    grid-row: 2;
+    height: 300px;
+    max-height: none;
+    border-left: 0;
+    border-top: 1px solid var(--line);
+    padding: 10px 12px 12px;
+  }
+
+  .embedded-dashboard .speech-bubble {
+    max-width: 156px;
+    padding: 6px 8px;
+    font-size: 11px;
+  }
+
+  .embedded-dashboard .speech-bubble strong {
+    font-size: 9px;
   }
 }
