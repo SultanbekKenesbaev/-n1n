@@ -73,7 +73,6 @@ CODEX_MODEL_OVERRIDES = {
     "nova": "gpt-5.4-mini",
 }
 OPENROUTER_API_URL = "https://openrouter.ai/api/v1/chat/completions"
-OPENROUTER_TIMEOUT_SECONDS = 240
 AGENT_SEARCH_ENABLED = {
     "coordinator": True,
     "mika": True,
@@ -134,25 +133,25 @@ AGENTS: dict[str, dict[str, str]] = {
         "name": "Team",
         "role": "Team",
         "prompt": (
-            "Team-чат всегда запускает Coordinator первым. Coordinator решает: ответить самому "
-            "или делегировать Mika, Scout, Dev и Nova, затем собрать финальный ответ."
+            "Team-чат всегда запускает Atlas первым. Atlas решает: ответить самому "
+            "или делегировать Ava, Scout, Dex и Echo, затем собрать финальный ответ."
         ),
     },
     "coordinator": {
-        "name": "Coordinator",
-        "role": "Lead / Team Orchestrator",
+        "name": "Atlas",
+        "role": "Team Coordinator",
         "prompt": (
-            "Ты Coordinator, внутренний характер Arman: операционный тимлид. "
+            "Ты Atlas, внутренний характер Arman: операционный тимлид и координатор команды. "
             "Контролируешь команду, управляешь задачами, выбираешь исполнителей, "
             "проверяешь качество и собираешь финальный результат."
         ),
     },
     "mika": {
-        "name": "Mika",
-        "role": "Sales Strategist / Client Closer",
+        "name": "Ava",
+        "role": "Client Communication / Sales",
         "prompt": (
-            "Ты Mika: sales/marketing агент и умный продавец-консультант. "
-            "Продаешь через диагностику, ценность и следующий шаг, без давления и пустых обещаний."
+            "Ты Ava: агент общения с клиентами и умный sales-консультант. "
+            "Понимаешь клиента, раскрываешь ценность и ведешь к следующему шагу без давления и пустых обещаний."
         ),
     },
     "scout": {
@@ -164,42 +163,63 @@ AGENTS: dict[str, dict[str, str]] = {
         ),
     },
     "dev": {
-        "name": "Dev",
-        "role": "Business Analyst / Growth Engineer",
+        "name": "Dex",
+        "role": "Developer / Growth Engineer",
         "prompt": (
-            "Ты Dev: бизнес-аналитик и growth-инженер. "
-            "Разбираешь модель бизнеса, воронку, процессы, юнит-экономику, риски, гипотезы и эксперименты."
+            "Ты Dex: разработчик, бизнес-аналитик и growth-инженер. "
+            "Разбираешь систему, процессы, воронку, цифры, риски, гипотезы и практическую реализацию."
         ),
     },
     "nova": {
-        "name": "Nova",
-        "role": "Support, Community & Publishing Operator",
+        "name": "Echo",
+        "role": "Support / Client Replies",
         "prompt": (
-            "Ты Nova: оператор коммуникаций и community-support агент. "
+            "Ты Echo: оператор поддержки, ответов клиентам и community-support агент. "
             "Отвечаешь на вопросы, комментарии, входящие сообщения, негатив и FAQ, "
-            "держишь тон спокойно, передаешь покупательское намерение Mika и готовишь approved-публикации "
+            "держишь тон спокойно, передаешь покупательское намерение Ava и готовишь approved-публикации "
             "в Telegram без автопостинга."
         ),
     },
 }
 
 SYSTEM_PROMPT = (
-    "Ты AI-агент в отдельном интерфейсе проекта. Отвечай по-русски, если пользователь "
-    "не попросил другой язык. Не используй заготовленные фразы, пустые вступления, "
+    "Ты AI-агент в отдельном интерфейсе проекта. Отвечай на языке последнего сообщения пользователя. "
+    "Если пользователь пишет по-английски, отвечай по-английски; если пишет на другом языке, отвечай на этом языке. "
+    "Если пользователь явно просит другой язык, используй запрошенный язык. Не используй заготовленные фразы, пустые вступления, "
     "канцелярит и повторение задачи. Дай конкретный полезный ответ. "
     "Не печатай полные секреты, токены, пароли, приватные ключи или cookie."
 )
 
+
+def detected_output_language(text: str) -> str:
+    cyrillic = len(re.findall(r"[А-Яа-яЁё]", text))
+    latin = len(re.findall(r"[A-Za-z]", text))
+    if latin > cyrillic * 2 and latin >= 3:
+        return "English"
+    if cyrillic > latin:
+        return "Russian"
+    return "the same language as the user's latest message"
+
+
+def language_instruction(text: str) -> str:
+    language = detected_output_language(text)
+    return (
+        f"Output language: {language}. "
+        "Use this language for every visible message, JSON string value, assignment, internal report, "
+        "question, final answer, and publish-ready text. Do not switch to Russian because the system instructions are in Russian. "
+        "Only keep another language when quoting user-provided text."
+    )
+
 COORDINATOR_PERSONA_LINES = (
-    "Публичное имя: Coordinator. Внутренний характер/кодовое имя: Arman.",
-    "Роль: Lead / Team Orchestrator.",
+    "Публичное имя: Atlas. Внутренний характер/кодовое имя: Arman.",
+    "Роль: Team Coordinator / Team Orchestrator.",
     "Архетип: операционный тимлид, который держит структуру, качество, сроки и финальный результат.",
     "Стиль: спокойный, собранный, требовательный, деловой, но не сухой.",
     "Не пиши шаблонное 'я понял задачу' каждый раз. Не используй театральность, длинные вступления и мотивационные фразы.",
 )
 
 COORDINATOR_WORKFLOW_LINES = (
-    "Рабочий цикл Coordinator:",
+    "Рабочий цикл Atlas:",
     "1. Понять задачу пользователя и ожидаемый результат.",
     "2. Определить, какие данные уже есть и чего не хватает.",
     "3. Если данных не хватает, задать четкие полезные вопросы.",
@@ -212,16 +232,16 @@ COORDINATOR_WORKFLOW_LINES = (
 
 COORDINATOR_TEAM_RULE_LINES = (
     "Командные правила:",
-    "- Mika получает продажи, маркетинг, клиентов, возражения и покупку.",
+    "- Ava получает продажи, маркетинг, клиентов, возражения и покупку.",
     "- Scout получает контент-стратегию, сценарии, посты, Reels, рынок, конкурентов, аудиторию, хуки и темы.",
-    "- Dev получает бизнес-анализ, процессы, цифры, воронку, юнит-экономику, риски, гипотезы и слабые места.",
-    "- Nova получает вопросы, комментарии, входящие сообщения, негатив, отзывы, FAQ, поддержку и community-коммуникации.",
+    "- Dex получает бизнес-анализ, разработку, процессы, цифры, воронку, юнит-экономику, риски, гипотезы и слабые места.",
+    "- Echo получает вопросы, комментарии, входящие сообщения, негатив, отзывы, FAQ, поддержку и community-коммуникации.",
     "- Не подключай всех автоматически. Выбирай только тех, кто реально нужен.",
     "- Не имитируй отчеты агентов. Если агент не запускался, не пиши, будто он уже ответил.",
 )
 
 COORDINATOR_QUALITY_LINES = (
-    "Качество ответа Coordinator:",
+    "Качество ответа Atlas:",
     "- Конкретика вместо воды.",
     "- По ситуации: коротко для простого, подробно для сложного.",
     "- Если есть допущение, явно назови его.",
@@ -230,7 +250,7 @@ COORDINATOR_QUALITY_LINES = (
 )
 
 MIKA_PERSONA_LINES = (
-    "Публичное имя: Mika.",
+    "Публичное имя: Ava.",
     "Роль: Sales Strategist / Client Closer.",
     "Архетип: теплый, уверенный продавец-консультант, который помогает клиенту принять решение.",
     "Стиль: человеческий, спокойный, убедительный, без давления и без агрессивного closing.",
@@ -238,7 +258,7 @@ MIKA_PERSONA_LINES = (
 )
 
 MIKA_SALES_WORKFLOW_LINES = (
-    "Рабочий цикл Mika:",
+    "Рабочий цикл Ava:",
     "1. Понять, что продаем и какой результат обещает продукт/услуга.",
     "2. Понять клиента: ситуация, боль/желание, сомнение, бюджет, критерий выбора.",
     "3. Сформулировать ценность решения простым языком.",
@@ -258,7 +278,7 @@ MIKA_OBJECTION_RULE_LINES = (
 )
 
 MIKA_REPORT_RULE_LINES = (
-    "Если Mika отвечает Coordinator'у, отчет должен быть полезным для финальной сборки:",
+    "Если Ava отвечает Atlas'у, отчет должен быть полезным для финальной сборки:",
     "- что продаем;",
     "- кто клиент или какой сегмент;",
     "- главное сомнение/барьер;",
@@ -283,7 +303,7 @@ SCOUT_RESEARCH_WORKFLOW_LINES = (
     "3. Найти рыночный угол: тренд, конкурентный пробел, частое возражение, сильный кейс или контраст.",
     "4. Выбрать формат: пост, Reels, Shorts, сторис, карусель, сценарий, рубрика или контент-план.",
     "5. Сформулировать хук, структуру, доказательство, пользу и мягкий следующий шаг.",
-    "6. Передать Mika продажные зацепки, если контент должен вести к покупке.",
+    "6. Передать Ava продажные зацепки, если контент должен вести к покупке.",
 )
 
 SCOUT_CONTENT_RULE_LINES = (
@@ -297,18 +317,18 @@ SCOUT_CONTENT_RULE_LINES = (
 )
 
 SCOUT_REPORT_RULE_LINES = (
-    "Если Scout отвечает Coordinator'у, отчет должен помогать финальной сборке:",
+    "Если Scout отвечает Atlas'у, отчет должен помогать финальной сборке:",
     "- цель контента;",
     "- аудитория и ее боль/желание;",
     "- рыночный или конкурентный угол;",
     "- темы/хуки/сценарии;",
-    "- какой материал можно отдать Mika для продажи;",
+    "- какой материал можно отдать Ava для продажи;",
     "- что нужно уточнить, если данных мало.",
     "Если задача простая, можно отвечать короче, но сохраняй хук, формат и следующий шаг.",
 )
 
 DEV_PERSONA_LINES = (
-    "Публичное имя: Dev.",
+    "Публичное имя: Dex.",
     "Роль: Business Analyst / Growth Engineer.",
     "Архетип: системный бизнес-аналитик, который превращает хаос в модель, метрики и проверяемые действия.",
     "Стиль: точный, спокойный, практичный, без лишней теории и без псевдоточности.",
@@ -316,7 +336,7 @@ DEV_PERSONA_LINES = (
 )
 
 DEV_ANALYSIS_WORKFLOW_LINES = (
-    "Рабочий цикл Dev:",
+    "Рабочий цикл Dex:",
     "1. Понять бизнес-модель: продукт/услуга, клиент, канал, цена, себестоимость, цикл сделки и повторные покупки.",
     "2. Разложить путь клиента по воронке: привлечение, активация/заявка, конверсия в оплату, удержание, повторная покупка/рекомендация, выручка.",
     "3. Отделить факты от допущений и явно назвать недостающие данные.",
@@ -336,7 +356,7 @@ DEV_METRIC_RULE_LINES = (
 )
 
 DEV_REPORT_RULE_LINES = (
-    "Если Dev отвечает Coordinator'у, отчет должен быть пригоден для управленческого решения:",
+    "Если Dex отвечает Atlas'у, отчет должен быть пригоден для управленческого решения:",
     "- бизнес-проблема;",
     "- что известно и чего не хватает;",
     "- воронка/процесс;",
@@ -349,7 +369,7 @@ DEV_REPORT_RULE_LINES = (
 )
 
 NOVA_PERSONA_LINES = (
-    "Публичное имя: Nova.",
+    "Публичное имя: Echo.",
     "Роль: Support & Community Operator.",
     "Архетип: спокойный оператор коммуникаций, который быстро понимает намерение человека и отвечает по-человечески.",
     "Стиль: теплый, ясный, короткий, уважительный, без роботских шаблонов и без споров.",
@@ -357,13 +377,13 @@ NOVA_PERSONA_LINES = (
 )
 
 NOVA_COMMUNICATION_WORKFLOW_LINES = (
-    "Рабочий цикл Nova:",
+    "Рабочий цикл Echo:",
     "1. Определить канал и контекст: публичный комментарий, Direct/DM, WhatsApp/Telegram, отзыв, жалоба, FAQ или поддержка.",
     "2. Определить намерение: вопрос, интерес к покупке, жалоба, сомнение, благодарность, троллинг/спам или запрос помощи.",
-    "3. Выбрать ответ: публичный короткий ответ, личное сообщение, уточняющий вопрос, инструкция, эскалация или передача Mika.",
+    "3. Выбрать ответ: публичный короткий ответ, личное сообщение, уточняющий вопрос, инструкция, эскалация или передача Ava.",
     "4. Ответить: признать контекст, дать ясную информацию, убрать напряжение, предложить следующий шаг.",
-    "5. Если есть покупательское намерение, мягко передать Mika или подготовить переход к продаже.",
-    "6. Если вопрос про контент/рынок, передать Scout; если про бизнес-процесс/цифры, передать Dev; если нужен выбор маршрута, передать Coordinator.",
+    "5. Если есть покупательское намерение, мягко передать Ava или подготовить переход к продаже.",
+    "6. Если вопрос про контент/рынок, передать Scout; если про бизнес-процесс/цифры/разработку, передать Dex; если нужен выбор маршрута, передать Atlas.",
 )
 
 NOVA_RESPONSE_RULE_LINES = (
@@ -371,20 +391,20 @@ NOVA_RESPONSE_RULE_LINES = (
     "- Публично отвечай короче и аккуратнее: без личных данных, споров и длинных объяснений.",
     "- В личных сообщениях можно уточнить детали, дать инструкцию, ссылку, варианты времени или следующий шаг.",
     "- На негатив: признать эмоцию, взять ответственность за следующий шаг, попросить детали в личку, не обвинять клиента.",
-    "- На вопрос о покупке: ответить на вопрос и предложить простой следующий шаг, затем передать Mika, если нужен дожим/оффер.",
+    "- На вопрос о покупке: ответить на вопрос и предложить простой следующий шаг, затем передать Ava, если нужен дожим/оффер.",
     "- На троллинг/провокацию: не спорить, отвечать один раз нейтрально или предложить перейти к фактам.",
     "- Не обещай возврат, сроки, скидку, гарантию, результат или политику компании, если этого нет во вводных.",
     "- Не запрашивай публично телефон, адрес, номер заказа, медицинские/финансовые данные или другую приватную информацию.",
 )
 
 NOVA_REPORT_RULE_LINES = (
-    "Если Nova отвечает Coordinator'у, отчет должен помогать быстро закрыть коммуникацию:",
+    "Если Echo отвечает Atlas'у, отчет должен помогать быстро закрыть коммуникацию:",
     "- канал/формат ответа;",
     "- намерение человека;",
     "- уровень срочности/риска;",
     "- готовый публичный ответ, если нужен;",
     "- готовый личный ответ, если нужен;",
-    "- кому передать дальше: Mika, Scout, Dev или Coordinator;",
+    "- кому передать дальше: Ava, Scout, Dex или Atlas;",
     "- следующий шаг.",
     "Если задача простая, можно отвечать короче, но не теряй намерение и следующий шаг.",
 )
@@ -405,6 +425,24 @@ class AgentHandler(SimpleHTTPRequestHandler):
     def do_OPTIONS(self) -> None:
         self.send_response(HTTPStatus.NO_CONTENT)
         self.end_headers()
+
+    def _redirect_old_agents_page(self) -> bool:
+        if self.path in {"/", "/agents.html"}:
+            self.send_response(HTTPStatus.FOUND)
+            self.send_header("Location", "http://localhost:3000/office/index.html?embed=dashboard")
+            self.end_headers()
+            return True
+        return False
+
+    def do_HEAD(self) -> None:
+        if self._redirect_old_agents_page():
+            return
+        super().do_HEAD()
+
+    def do_GET(self) -> None:
+        if self._redirect_old_agents_page():
+            return
+        super().do_GET()
 
     def do_POST(self) -> None:
         if self.path != "/api/agents/chat":
@@ -480,6 +518,7 @@ def build_prompt(
     agent = AGENTS[agent_id]
     lines = [
         SYSTEM_PROMPT,
+        language_instruction(message),
         "",
         f"Текущий агент: {agent['name']} ({agent['role']}).",
         agent["prompt"],
@@ -492,7 +531,7 @@ def build_prompt(
         add_coordinator_instruction_block(lines)
         lines.extend(
             [
-                "Режим прямого чата Coordinator:",
+                "Режим прямого чата Atlas:",
                 "- Работай как менеджер команды: планируй, распределяй, проверяй, формируй задания.",
                 "- Если нужно подключить агентов, сформулируй кому и что поручить.",
                 "- Не притворяйся, что другие агенты уже ответили, если они реально не запускались.",
@@ -503,7 +542,7 @@ def build_prompt(
         add_mika_instruction_block(lines)
         lines.extend(
             [
-                "Режим прямого чата Mika:",
+                "Режим прямого чата Ava:",
                 "- Отвечай как sales-консультант: сначала понять клиента, потом предложить решение.",
                 "- Если данных мало, задай четкие вопросы о продукте, клиенте, цене, боли и следующем шаге.",
                 "- Если данных достаточно, дай готовый текст, скрипт, оффер или ответ на возражение.",
@@ -524,7 +563,7 @@ def build_prompt(
         add_dev_instruction_block(lines)
         lines.extend(
             [
-                "Режим прямого чата Dev:",
+                "Режим прямого чата Dex:",
                 "- Отвечай как бизнес-аналитик и growth-инженер: модель, воронка, метрики, узкое место, риски, гипотезы.",
                 "- Если данных мало, задай четкие вопросы по цене, марже, лидам, конверсиям, каналам, затратам и процессу.",
                 "- Если данных достаточно, посчитай или разложи по формулам, затем дай приоритетный план действий.",
@@ -535,11 +574,11 @@ def build_prompt(
         add_nova_instruction_block(lines)
         lines.extend(
             [
-                "Режим прямого чата Nova:",
+                "Режим прямого чата Echo:",
                 "- Отвечай как оператор коммуникаций: быстро понять намерение, дать готовый ответ и следующий шаг.",
                 "- Если пользователь просит ответить на комментарий/DM, дай готовую формулировку под канал.",
                 "- Если данных мало, задай четкие вопросы о контексте, канале, тоне, политике компании и желаемом действии.",
-                "- Если есть покупательское намерение, подготовь мягкий переход к Mika, не дави и не закрывай продажу вместо нее.",
+                "- Если есть покупательское намерение, подготовь мягкий переход к Ava, не дави и не закрывай продажу вместо нее.",
             ]
         )
 
@@ -568,7 +607,7 @@ def build_prompt(
 
 
 def add_coordinator_instruction_block(lines: list[str]) -> None:
-    lines.extend(["", "Persona Coordinator / Arman:"])
+    lines.extend(["", "Persona Atlas / Arman:"])
     lines.extend(COORDINATOR_PERSONA_LINES)
     lines.extend(["", *COORDINATOR_WORKFLOW_LINES])
     lines.extend(["", *COORDINATOR_TEAM_RULE_LINES])
@@ -576,7 +615,7 @@ def add_coordinator_instruction_block(lines: list[str]) -> None:
 
 
 def add_mika_instruction_block(lines: list[str]) -> None:
-    lines.extend(["", "Persona Mika:"])
+    lines.extend(["", "Persona Ava:"])
     lines.extend(MIKA_PERSONA_LINES)
     lines.extend(["", *MIKA_SALES_WORKFLOW_LINES])
     lines.extend(["", *MIKA_OBJECTION_RULE_LINES])
@@ -592,7 +631,7 @@ def add_scout_instruction_block(lines: list[str]) -> None:
 
 
 def add_dev_instruction_block(lines: list[str]) -> None:
-    lines.extend(["", "Persona Dev:"])
+    lines.extend(["", "Persona Dex:"])
     lines.extend(DEV_PERSONA_LINES)
     lines.extend(["", *DEV_ANALYSIS_WORKFLOW_LINES])
     lines.extend(["", *DEV_METRIC_RULE_LINES])
@@ -600,7 +639,7 @@ def add_dev_instruction_block(lines: list[str]) -> None:
 
 
 def add_nova_instruction_block(lines: list[str]) -> None:
-    lines.extend(["", "Persona Nova:"])
+    lines.extend(["", "Persona Echo:"])
     lines.extend(NOVA_PERSONA_LINES)
     lines.extend(["", *NOVA_COMMUNICATION_WORKFLOW_LINES])
     lines.extend(["", *NOVA_RESPONSE_RULE_LINES])
@@ -682,7 +721,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
     effective_message = turn_context.message
     if pending:
         effective_message = (
-            "Продолжение Team-задачи после уточняющего вопроса Coordinator.\n\n"
+            "Продолжение Team-задачи после уточняющего вопроса Atlas.\n\n"
             f"Исходная задача:\n{pending.get('message', '')}\n\n"
             f"Уточнение пользователя:\n{turn_context.message}"
         )
@@ -720,7 +759,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         }
         coordinator.add_message(
             role="assistant",
-            author="Coordinator",
+            author=AGENTS["coordinator"]["name"],
             text=reply,
             event_type="team_question",
             team_run_id=run_id,
@@ -730,7 +769,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
             "reply": reply,
             "messages": [
                 agent_message(
-                    "Coordinator",
+                    AGENTS["coordinator"]["name"],
                     reply,
                     phase="question",
                     audience="user",
@@ -746,20 +785,21 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
 
     if not assignments:
         reply = coordinator_note or run_ai(
-            build_coordinator_direct_prompt(
-                effective_message,
-                memory_turns("coordinator", account_id=account_id, limit=8),
-                memory_context=coordinator.context_for_prompt(effective_message),
-                tool_context=turn_context.tool_context,
-                crm_context=get_crm(account_id=account_id).context_for_query(effective_message),
-            ),
+        build_coordinator_direct_prompt(
+            effective_message,
+            memory_turns("coordinator", account_id=account_id, limit=8),
+            memory_context=coordinator.context_for_prompt(effective_message),
+            tool_context=turn_context.tool_context,
+            crm_context=get_crm(account_id=account_id).context_for_query(effective_message),
+            language_source=turn_context.message,
+        ),
             agent_id="coordinator",
             image_paths=turn_context.image_paths,
             search_enabled=wants_web_search("coordinator", effective_message, turn_context.tool_context),
         )
         coordinator.add_message(
             role="assistant",
-            author="Coordinator",
+            author=AGENTS["coordinator"]["name"],
             text=reply,
             event_type="team_final",
             team_run_id=run_id,
@@ -767,8 +807,8 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         )
         auto_remember_if_useful(
             coordinator,
-            text=f"User: {effective_message}\nCoordinator: {reply}",
-            title="Coordinator direct team answer",
+            text=f"User: {effective_message}\n{AGENTS['coordinator']['name']}: {reply}",
+            title="Atlas direct team answer",
             source_message_id=user_message_id,
             event_type="team_final",
             metadata={"sessionId": session_id, "runId": run_id},
@@ -777,7 +817,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
             "reply": reply,
             "messages": [
                 agent_message(
-                    "Coordinator",
+                    AGENTS["coordinator"]["name"],
                     reply,
                     phase="final",
                     audience="user",
@@ -803,7 +843,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
             coordinator_text = "\n".join(assignment_lines)
     messages.append(
         agent_message(
-            "Coordinator",
+            AGENTS["coordinator"]["name"],
             coordinator_text,
             phase="routing",
             audience="team",
@@ -814,7 +854,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
     )
     coordinator.add_message(
         role="assistant",
-        author="Coordinator",
+        author=AGENTS["coordinator"]["name"],
         text=coordinator_text,
         event_type="team_routing",
         team_run_id=run_id,
@@ -853,6 +893,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
             memory_context=coordinator.context_for_prompt(effective_message),
             tool_context=turn_context.tool_context,
             crm_context=get_crm(account_id=account_id).context_for_query(effective_message),
+            language_source=turn_context.message,
         ),
         agent_id="coordinator",
         image_paths=turn_context.image_paths,
@@ -867,7 +908,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
     )
     coordinator_final_id = coordinator.add_message(
         role="assistant",
-        author="Coordinator",
+        author=AGENTS["coordinator"]["name"],
         text=final_reply,
         event_type="team_final",
         team_run_id=run_id,
@@ -876,14 +917,14 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
     auto_remember_if_useful(
         coordinator,
         text=f"User: {effective_message}\nFinal: {final_reply}",
-        title="Coordinator final team answer",
+        title="Atlas final team answer",
         source_message_id=coordinator_final_id,
         event_type="team_final",
         metadata={"sessionId": session_id, "runId": run_id},
     )
     messages.append(
         agent_message(
-            "Coordinator",
+            AGENTS["coordinator"]["name"],
             final_reply,
             phase="final",
             audience="user",
@@ -917,6 +958,7 @@ def coordinator_decision(
             memory_context=coordinator.context_for_prompt(message),
             tool_context=turn_context.tool_context,
             crm_context=get_crm(account_id=account_id).context_for_query(message),
+            language_source=turn_context.message,
         ),
         agent_id="coordinator",
         image_paths=turn_context.image_paths,
@@ -937,11 +979,13 @@ def build_coordinator_decision_prompt(
     memory_context: str = "",
     tool_context: str = "",
     crm_context: str = "",
+    language_source: str | None = None,
 ) -> str:
     lines = [
         SYSTEM_PROMPT,
+        language_instruction(language_source or message),
         "",
-        "Ты Coordinator, тимлид команды AI-агентов.",
+        "Ты Atlas, тимлид команды AI-агентов.",
     ]
     add_coordinator_instruction_block(lines)
     append_context_blocks(lines, memory_context=memory_context, tool_context=tool_context, crm_context=crm_context)
@@ -951,22 +995,22 @@ def build_coordinator_decision_prompt(
         "Твоя задача: первым прочитать сообщение в Team-чате и решить маршрут.",
         "",
         "Доступные агенты:",
-        "- mika: продажи, маркетинг, клиенты, возражения, покупка.",
+        "- mika / Ava: продажи, маркетинг, клиенты, возражения, покупка.",
         "- scout: контент-стратегия, сценарии, посты, Reels, рынок, конкуренты, аудитория, хуки, темы.",
-        "- dev: аналитика бизнеса, цифры, процессы, воронка, юнит-экономика, риски, гипотезы, слабые места.",
-        "- nova: вопросы, комментарии, входящие сообщения, негатив, отзывы, FAQ, поддержка, community-коммуникации.",
+        "- dev / Dex: аналитика бизнеса, разработка, цифры, процессы, воронка, юнит-экономика, риски, гипотезы, слабые места.",
+        "- nova / Echo: вопросы, комментарии, входящие сообщения, негатив, отзывы, FAQ, поддержка, community-коммуникации.",
         "",
         "Правила:",
         "- Если задача общая и не требует профильной работы агента, можешь ответить сам как тимлид и оставить assignments пустым.",
         "- Если задача относится к зоне агента, подключи этого агента, даже если сам можешь дать базовый ответ.",
-        "- Для продаж, клиентов, цены, оплаты, лидов, офферов и возражений подключай Mika.",
+        "- Для продаж, клиентов, цены, оплаты, лидов, офферов и возражений подключай Ava.",
         "- Для контента, постов, Reels, сценариев, рынка, конкурентов, аудитории, хуков и тем подключай Scout.",
-        "- Для бизнеса, воронки, метрик, прибыли, маржи, CAC/LTV, ROI/ROMI, процессов, рисков и гипотез подключай Dev.",
-        "- Для вопросов, комментариев, входящих сообщений, отзывов, жалоб, негатива, FAQ и поддержки подключай Nova.",
-        "- Если пользователь просит опубликовать, выложить или подготовить пост для Telegram/канала, подключай Scout + Nova.",
-        "- Если публикация должна продавать, собирать заявки или вести к покупке, дополнительно подключай Mika.",
-        "- Если пользователь просит подготовить ответ на входящее сообщение, комментарий, Direct/DM, WhatsApp или Telegram, Nova обязательна.",
-        "- Если во входящем сообщении есть цена, покупка, запись, оплата или лид, подключай Nova + Mika: Nova отвечает за коммуникационный тон, Mika за продажный следующий шаг.",
+        "- Для бизнеса, разработки, воронки, метрик, прибыли, маржи, CAC/LTV, ROI/ROMI, процессов, рисков и гипотез подключай Dex.",
+        "- Для вопросов, комментариев, входящих сообщений, отзывов, жалоб, негатива, FAQ и поддержки подключай Echo.",
+        "- Если пользователь просит опубликовать, выложить или подготовить пост для Telegram/канала, подключай Scout + Echo.",
+        "- Если публикация должна продавать, собирать заявки или вести к покупке, дополнительно подключай Ava.",
+        "- Если пользователь просит подготовить ответ на входящее сообщение, комментарий, Direct/DM, WhatsApp или Telegram, Echo обязательна.",
+        "- Если во входящем сообщении есть цена, покупка, запись, оплата или лид, подключай Echo + Ava: Echo отвечает за коммуникационный тон, Ava за продажный следующий шаг.",
         "- Если нужны агенты, дай каждому отдельную четкую задачу.",
         "- Не подключай всех автоматически. Выбирай только нужных.",
         "- Если зона задачи понятна, но не хватает деталей для полного ответа, все равно подключи профильного агента: он даст шаблон, допущения и четкие вопросы.",
@@ -978,7 +1022,7 @@ def build_coordinator_decision_prompt(
         "- userQuestions заполняй только когда action=ask_user.",
         "- Верни только JSON без markdown.",
         "",
-        'Формат JSON: {"action":"delegate","coordinatorMessage":"что Coordinator видимо пишет в чат","needsUserInput":false,"userQuestions":[],"assignments":[{"agentId":"mika","task":"конкретная задача"}]}',
+        'Формат JSON: {"action":"delegate","coordinatorMessage":"что Atlas видимо пишет в чат","needsUserInput":false,"userQuestions":[],"assignments":[{"agentId":"mika","task":"конкретная задача"}]}',
         ]
     )
     append_history(lines, history)
@@ -993,11 +1037,13 @@ def build_coordinator_direct_prompt(
     memory_context: str = "",
     tool_context: str = "",
     crm_context: str = "",
+    language_source: str | None = None,
 ) -> str:
     lines = [
         SYSTEM_PROMPT,
+        language_instruction(language_source or message),
         "",
-        "Ты Coordinator. Пользователь написал в Team, но ты решил ответить сам.",
+        "Ты Atlas. Пользователь написал в Team, но ты решил ответить сам.",
     ]
     add_coordinator_instruction_block(lines)
     append_context_blocks(lines, memory_context=memory_context, tool_context=tool_context, crm_context=crm_context)
@@ -1018,20 +1064,22 @@ def build_agent_report_prompt(
     memory_context: str = "",
     tool_context: str = "",
     crm_context: str = "",
+    language_source: str | None = None,
 ) -> str:
     agent = AGENTS[agent_id]
     lines = [
         SYSTEM_PROMPT,
+        language_instruction(language_source or user_message),
         "",
         f"Ты {agent['name']} ({agent['role']}).",
         agent["prompt"],
         "",
         "Ты работаешь не напрямую с пользователем, а внутри команды.",
-        "Обращайся к Coordinator. Дай отчет, вопрос или готовый материал по своей задаче.",
-        "Если не хватает данных, задай Coordinator один или несколько четких вопросов.",
+        "Обращайся к Atlas. Дай отчет, вопрос или готовый материал по своей задаче.",
+        "Если не хватает данных, задай Atlas один или несколько четких вопросов.",
         "Не пиши шаблонное 'беру задачу'. Сразу дай полезный результат.",
-        "Если тебе нужно уточнение у другого агента, явно напиши: Вопрос к <agent>: <вопрос>.",
-        "Если нужен ответ пользователя, явно напиши: Вопрос пользователю: <вопрос>.",
+        "Если тебе нужно уточнение у другого агента, используй язык ответа: English -> Question to <agent>: <question>; Russian -> Вопрос к <agent>: <вопрос>.",
+        "Если нужен ответ пользователя, используй язык ответа: English -> Question for the user: <question>; Russian -> Вопрос пользователю: <вопрос>.",
         "Если твоя задача связана с Telegram-публикацией, подготовь publish-ready материал, но не пиши будто публикация уже отправлена.",
     ]
     append_context_blocks(lines, memory_context=memory_context, tool_context=tool_context, crm_context=crm_context)
@@ -1050,10 +1098,10 @@ def build_agent_report_prompt(
             "Исходная задача пользователя:",
             user_message,
             "",
-            "Поручение от Coordinator:",
+            "Поручение от Atlas:",
             task,
             "",
-            "Верни только сообщение агента для Coordinator.",
+            "Верни только сообщение агента для Atlas.",
         ]
     )
     return "\n".join(lines)
@@ -1068,11 +1116,13 @@ def build_coordinator_final_prompt(
     memory_context: str = "",
     tool_context: str = "",
     crm_context: str = "",
+    language_source: str | None = None,
 ) -> str:
     lines = [
         SYSTEM_PROMPT,
+        language_instruction(language_source or message),
         "",
-        "Ты Coordinator. Собери финальный ответ пользователю на основе отчетов агентов.",
+        "Ты Atlas. Собери финальный ответ пользователю на основе отчетов агентов.",
     ]
     add_coordinator_instruction_block(lines)
     append_context_blocks(lines, memory_context=memory_context, tool_context=tool_context, crm_context=crm_context)
@@ -1200,7 +1250,7 @@ def agent_message(
 def agent_payload(agent_id: str) -> dict[str, str]:
     payload = dict(AGENTS[agent_id])
     if agent_id != "all":
-        payload["model"] = AGENT_MODEL_OVERRIDES.get(agent_id, "")
+        payload["model"] = CODEX_MODEL_OVERRIDES.get(agent_id, "")
     return payload
 
 
@@ -1276,7 +1326,7 @@ def run_single_assignment_report(
     agent_store = get_memory(agent_id, account_id=account_id)
     agent_store.add_message(
         role="assistant",
-        author="Coordinator",
+        author=AGENTS["coordinator"]["name"],
         text=assignment["task"],
         event_type="assignment",
         team_run_id=run_id,
@@ -1294,6 +1344,7 @@ def run_single_assignment_report(
             crm_context=get_crm(account_id=account_id).context_for_query(effective_message)
             if agent_id in {"mika", "dev", "nova"}
             else "",
+            language_source=turn_context.message,
         ),
         agent_id=agent_id,
         image_paths=turn_context.image_paths,
@@ -1374,6 +1425,7 @@ def run_internal_followups(
                 crm_context=get_crm(account_id=account_id).context_for_query(message)
                 if target_id in {"mika", "dev", "nova"}
                 else "",
+                language_source=turn_context.message,
             ),
             agent_id=target_id,
             image_paths=turn_context.image_paths,
@@ -1413,7 +1465,7 @@ def run_internal_followups(
 
 def extract_agent_question(text: str) -> tuple[str, str] | None:
     pattern = re.compile(
-        r"Вопрос\s+к\s+(Mika|Scout|Dev|Nova)\s*:\s*(.+)",
+        r"(?:Вопрос\s+к|Question\s+to)\s+(Ava|Mika|Scout|Dex|Dev|Echo|Nova|Atlas|Coordinator)\s*:\s*(.+)",
         flags=re.IGNORECASE | re.DOTALL,
     )
     match = pattern.search(text)
@@ -1421,7 +1473,17 @@ def extract_agent_question(text: str) -> tuple[str, str] | None:
         return None
     name = match.group(1).lower()
     question = match.group(2).strip()
-    mapping = {"mika": "mika", "scout": "scout", "dev": "dev", "nova": "nova"}
+    mapping = {
+        "ava": "mika",
+        "mika": "mika",
+        "scout": "scout",
+        "dex": "dev",
+        "dev": "dev",
+        "echo": "nova",
+        "nova": "nova",
+        "atlas": "coordinator",
+        "coordinator": "coordinator",
+    }
     target_id = mapping.get(name)
     if not target_id or not question:
         return None
@@ -1490,6 +1552,7 @@ def normalize_assignments(value: object) -> list[dict[str, str]]:
 
 def keyword_decision(message: str) -> dict[str, Any]:
     lowered = message.lower()
+    english = detected_output_language(message) == "English"
     assignments: list[dict[str, str]] = []
     if any(
         word in lowered
@@ -1509,9 +1572,29 @@ def keyword_decision(message: str) -> dict[str, Any]:
             "заявк",
             "кп",
             "коммерческ",
+            "buy",
+            "sell",
+            "sales",
+            "client",
+            "customer",
+            "price",
+            "payment",
+            "lead",
+            "offer",
+            "objection",
+            "expensive",
+            "commercial",
+            "proposal",
         )
     ):
-        assignments.append({"agentId": "mika", "task": "Разбери продажу, клиента, оффер, возражение и следующий шаг к покупке."})
+        assignments.append({
+            "agentId": "mika",
+            "task": (
+                "Analyze the sale, customer, offer, objection, and next step toward purchase."
+                if english
+                else "Разбери продажу, клиента, оффер, возражение и следующий шаг к покупке."
+            ),
+        })
     if any(
         word in lowered
         for word in (
@@ -1539,15 +1622,37 @@ def keyword_decision(message: str) -> dict[str, Any]:
             "вылож",
             "запости",
             "публикац",
+            "post",
+            "content",
+            "script",
+            "reel",
+            "hook",
+            "market",
+            "trend",
+            "competitor",
+            "audience",
+            "topic",
+            "idea",
+            "publish",
+            "launch",
+            "announce",
+            "telegram post",
         )
     ):
-        assignments.append({"agentId": "scout", "task": "Подготовь контент-стратегию: аудитория, угол, темы, хуки, форматы, сценарии и связь с бизнес-целью."})
+        assignments.append({
+            "agentId": "scout",
+            "task": (
+                "Prepare the content strategy: audience, angle, topics, hooks, format, script, and link to the business goal."
+                if english
+                else "Подготовь контент-стратегию: аудитория, угол, темы, хуки, форматы, сценарии и связь с бизнес-целью."
+            ),
+        })
     if any(
         word in lowered
         for word in (
             "аналит",
             "метрик",
-            "бизнес",
+            "бизнес-модель",
             "воронк",
             "выруч",
             "прибыл",
@@ -1576,9 +1681,33 @@ def keyword_decision(message: str) -> dict[str, Any]:
             "слабое",
             "финанс",
             "экономик",
+            "analytics",
+            "metric",
+            "business model",
+            "analyze",
+            "funnel",
+            "revenue",
+            "profit",
+            "margin",
+            "conversion",
+            "process",
+            "operation",
+            "risk",
+            "hypothesis",
+            "experiment",
+            "growth",
+            "finance",
+            "economics",
         )
     ):
-        assignments.append({"agentId": "dev", "task": "Проанализируй бизнес-модель, воронку, метрики, юнит-экономику, риски, узкие места и гипотезы улучшения."})
+        assignments.append({
+            "agentId": "dev",
+            "task": (
+                "Analyze the business model, funnel, metrics, unit economics, risks, bottlenecks, and improvement hypotheses."
+                if english
+                else "Проанализируй бизнес-модель, воронку, метрики, юнит-экономику, риски, узкие места и гипотезы улучшения."
+            ),
+        })
     if any(
         word in lowered
         for word in (
@@ -1613,12 +1742,38 @@ def keyword_decision(message: str) -> dict[str, Any]:
             "запости",
             "публикац",
             "канал",
+            "comment",
+            "question",
+            "answer",
+            "reply",
+            "message",
+            "support",
+            "review",
+            "complaint",
+            "negative",
+            "refund",
+            "claim",
+            "inbox",
+            "channel",
         )
     ):
-        assignments.append({"agentId": "nova", "task": "Подготовь коммуникационный ответ: намерение человека, канал, тон, готовая формулировка, эскалация и следующий шаг."})
+        assignments.append({
+            "agentId": "nova",
+            "task": (
+                "Prepare the communication response: user intent, channel, tone, ready wording, escalation, and next step."
+                if english
+                else "Подготовь коммуникационный ответ: намерение человека, канал, тон, готовая формулировка, эскалация и следующий шаг."
+            ),
+        })
     return {
         "action": "delegate" if assignments else "answer_direct",
-        "coordinatorMessage": "Подключаю нужных агентов и даю им отдельные поручения." if assignments else "",
+        "coordinatorMessage": (
+            "I am assigning the right agents with separate tasks."
+            if assignments and english
+            else "Подключаю нужных агентов и даю им отдельные поручения."
+            if assignments
+            else ""
+        ),
         "needsUserInput": False,
         "userQuestions": [],
         "assignments": assignments,
@@ -1654,18 +1809,25 @@ def build_pending_publish(
     publish_text: str,
     *,
     run_id: str,
-) -> dict[str, str] | None:
+) -> dict[str, Any] | None:
     if not wants_telegram_publish(user_message):
         return None
     text = (publish_text or final_reply).strip()
     if not text:
         return None
+    auto_publish = os.environ.get("TELEGRAM_AUTO_PUBLISH", "true").strip().lower() not in {
+        "0",
+        "false",
+        "no",
+        "off",
+    }
     return {
         "platform": "telegram",
-        "status": "approval_required",
+        "status": "auto_publish_pending" if auto_publish else "approval_required",
         "text": text[:4000],
         "runId": run_id,
         "source": "team",
+        "autoPublish": auto_publish,
     }
 
 
@@ -1676,17 +1838,6 @@ def run_ai(
     image_paths: list[Path] | None = None,
     search_enabled: bool | None = None,
 ) -> str:
-    openrouter_error: RuntimeError | None = None
-    try:
-        return run_openrouter(
-            prompt,
-            agent_id=agent_id,
-            image_paths=image_paths or [],
-            search_enabled=search_enabled,
-        )
-    except RuntimeError as exc:
-        openrouter_error = exc
-
     try:
         return run_codex(
             prompt,
@@ -1695,11 +1846,20 @@ def run_ai(
             search_enabled=search_enabled,
         )
     except RuntimeError as codex_error:
-        openrouter_detail = str(openrouter_error or "not attempted")[-500:]
-        codex_detail = str(codex_error)[-500:]
-        raise RuntimeError(
-            f"AI backend не ответил. OpenRouter: {openrouter_detail}. Codex fallback: {codex_detail}"
-        ) from codex_error
+        try:
+            return run_openrouter(
+                prompt,
+                agent_id=agent_id,
+                image_paths=image_paths or [],
+                search_enabled=search_enabled,
+            )
+        except RuntimeError as openrouter_error:
+            codex_detail = str(codex_error)[-500:]
+            openrouter_detail = str(openrouter_error)[-500:]
+            raise RuntimeError(
+                f"AI backend не ответил. Codex primary: {codex_detail}. "
+                f"OpenRouter fallback: {openrouter_detail}"
+            ) from openrouter_error
 
 
 def run_openrouter(
@@ -1736,7 +1896,7 @@ def run_openrouter(
         method="POST",
     )
     try:
-        with urllib.request.urlopen(request, timeout=OPENROUTER_TIMEOUT_SECONDS) as response:
+        with urllib.request.urlopen(request) as response:
             raw = response.read().decode("utf-8")
     except urllib.error.HTTPError as exc:
         detail = exc.read().decode("utf-8", errors="replace")[-1200:]
@@ -1870,7 +2030,6 @@ def _run_codex_once(
             input=prompt,
             text=True,
             capture_output=True,
-            timeout=240,
             env=codex_environment(),
             check=False,
         )
@@ -1904,7 +2063,7 @@ def main() -> None:
 
     os.chdir(ROOT)
     server = ThreadingHTTPServer((args.host, args.port), AgentHandler)
-    print(f"Serving AI agents on http://{args.host}:{args.port}/agents.html", flush=True)
+    print(f"Serving AI agent API on http://{args.host}:{args.port}/api/agents/chat", flush=True)
     server.serve_forever()
 
 

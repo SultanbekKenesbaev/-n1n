@@ -21,7 +21,9 @@
 html,
 body {
   margin: 0;
+  height: 100%;
   min-height: 100%;
+  overflow: hidden;
   background: var(--bg);
   color: var(--ink);
   font-family:
@@ -33,13 +35,26 @@ button {
   font: inherit;
 }
 
+.visually-hidden {
+  position: absolute !important;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
 .app-shell {
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 0;
   display: flex;
   flex-direction: column;
+  overflow: hidden;
 }
 
 .topbar {
+  flex: 0 0 auto;
   min-height: 68px;
   display: flex;
   align-items: center;
@@ -376,6 +391,10 @@ button {
   border-color: rgba(79, 91, 213, 0.35);
 }
 
+.agent-row.team-row {
+  border-color: rgba(31, 41, 51, 0.08);
+}
+
 .agent-token {
   display: grid;
   place-items: center;
@@ -393,6 +412,20 @@ button {
   object-fit: contain;
   object-position: center bottom;
   image-rendering: pixelated;
+}
+
+.team-token {
+  grid-template-columns: repeat(2, 18px);
+  grid-template-rows: repeat(2, 18px);
+  gap: 0;
+  place-content: center;
+  background: #f6f7fb;
+}
+
+.team-token img {
+  width: 24px;
+  height: 24px;
+  margin: -3px;
 }
 
 .agent-meta {
@@ -585,6 +618,7 @@ body.resizing-chat {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0;
+  flex: 0 0 auto;
   min-height: 44px;
   border-bottom: 1px solid var(--line);
 }
@@ -609,22 +643,28 @@ body.resizing-chat {
 }
 
 .tab-icon-chat {
-  width: 17px;
-  height: 15px;
+  width: 18px;
+  height: 18px;
+}
+
+.tab-icon-chat::before {
+  position: absolute;
+  inset: 3px 2px 4px;
   border: 2px solid currentColor;
   border-radius: 8px;
+  content: "";
 }
 
 .tab-icon-chat::after {
   position: absolute;
-  left: 3px;
-  bottom: -4px;
-  width: 6px;
-  height: 6px;
+  left: 6px;
+  bottom: 1px;
+  width: 5px;
+  height: 5px;
   border-left: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
   background: var(--panel);
-  transform: rotate(-25deg);
+  transform: rotate(-35deg);
   content: "";
 }
 
@@ -637,7 +677,7 @@ body.resizing-chat {
 .tab-icon-activity::before {
   left: 1px;
   right: 1px;
-  top: 7px;
+  top: 8px;
   height: 2px;
   border-radius: 999px;
   background: currentColor;
@@ -646,11 +686,11 @@ body.resizing-chat {
 .tab-icon-activity::after {
   left: 4px;
   top: 3px;
-  width: 8px;
-  height: 9px;
+  width: 10px;
+  height: 10px;
   border-left: 2px solid currentColor;
   border-bottom: 2px solid currentColor;
-  transform: skewX(-24deg) rotate(-12deg);
+  transform: skewX(-24deg) rotate(-10deg);
 }
 
 .chat-view,
@@ -661,7 +701,7 @@ body.resizing-chat {
 
 .chat-view {
   display: grid;
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 10px;
   min-height: 0;
   overflow: hidden;
@@ -721,6 +761,21 @@ body.resizing-chat {
   gap: 10px;
   align-items: start;
   margin-top: 12px;
+}
+
+.chat-message.message-enter {
+  animation: messageIn 280ms ease-out both;
+}
+
+@keyframes messageIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 .chat-message:first-child {
@@ -861,10 +916,16 @@ body.resizing-chat {
 }
 
 .chat-composer {
+  position: relative;
+  z-index: 2;
+  flex: 0 0 auto;
   display: grid;
   grid-template-columns: minmax(0, 1fr) 42px;
   gap: 8px;
   align-items: center;
+  height: 48px;
+  min-height: 48px;
+  max-height: 48px;
   border: 1px solid #cad1e0;
   border-radius: 999px;
   background: #fff;
@@ -902,7 +963,7 @@ body.resizing-chat {
   position: absolute;
   inset: 2px;
   background: currentColor;
-  clip-path: polygon(2% 48%, 94% 7%, 65% 92%, 49% 58%);
+  clip-path: polygon(4% 47%, 94% 8%, 67% 92%, 49% 58%);
   content: "";
 }
 
@@ -910,7 +971,7 @@ body.resizing-chat {
   position: absolute;
   left: 7px;
   top: 8px;
-  width: 7px;
+  width: 8px;
   height: 2px;
   border-radius: 2px;
   background: color-mix(in srgb, var(--brand) 70%, #ffffff);
@@ -1019,10 +1080,19 @@ body.embedded-dashboard {
 }
 
 .embedded-dashboard .stage {
+  grid-column: 1;
+  grid-row: 1;
   min-height: 0;
 }
 
+.embedded-dashboard .chat-resize-handle {
+  grid-column: 2;
+  grid-row: 1;
+}
+
 .embedded-dashboard .agent-chat-panel {
+  grid-column: 3;
+  grid-row: 1;
   min-height: 0;
   padding: 12px 18px 18px;
 }
@@ -1048,6 +1118,9 @@ body.embedded-dashboard {
 
 .embedded-dashboard .chat-composer {
   grid-template-columns: minmax(0, 1fr) 38px;
+  height: 46px;
+  min-height: 46px;
+  max-height: 46px;
   padding: 5px;
 }
 
@@ -1067,7 +1140,7 @@ body.embedded-dashboard {
 }
 
 .embedded-dashboard .chat-view {
-  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-rows: minmax(0, 1fr) auto;
   gap: 9px;
   min-height: 0;
   overflow: hidden;
@@ -1184,5 +1257,174 @@ body.embedded-dashboard {
   .scene-hud > div:nth-child(2),
   .scene-hud > div:nth-child(3) {
     display: none;
+  }
+}
+
+.embedded-dashboard {
+  height: 100dvh;
+  overflow: hidden;
+}
+
+.embedded-dashboard .app-shell {
+  height: 100dvh;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.embedded-dashboard .workspace {
+  flex: 1 1 auto;
+  grid-template-columns: minmax(0, 1fr) 8px var(--chat-panel-width);
+  grid-template-rows: minmax(0, 1fr);
+  height: auto;
+  min-height: 0;
+  max-height: none;
+  overflow: hidden;
+}
+
+.embedded-dashboard .roster-panel {
+  display: none;
+}
+
+.embedded-dashboard .roster-panel .panel-title-row {
+  min-height: 42px;
+  padding: 0 10px;
+}
+
+.embedded-dashboard .roster-panel .panel-title-row h2 {
+  font-size: 10px;
+}
+
+.embedded-dashboard .roster-list {
+  padding: 8px;
+}
+
+.embedded-dashboard .agent-row {
+  grid-template-columns: 38px minmax(0, 1fr);
+  gap: 7px;
+  padding: 6px;
+}
+
+.embedded-dashboard .agent-token {
+  width: 38px;
+  height: 38px;
+}
+
+.embedded-dashboard .agent-token img {
+  width: 48px;
+  height: 48px;
+}
+
+.embedded-dashboard .team-token {
+  grid-template-columns: repeat(2, 15px);
+  grid-template-rows: repeat(2, 15px);
+}
+
+.embedded-dashboard .team-token img {
+  width: 21px;
+  height: 21px;
+}
+
+.embedded-dashboard .agent-name {
+  font-size: 12px;
+}
+
+.embedded-dashboard .agent-role {
+  font-size: 10px;
+}
+
+.embedded-dashboard .status-dot {
+  display: none;
+}
+
+.embedded-dashboard .agent-chat-panel {
+  grid-column: 3;
+  grid-row: 1;
+  min-height: 0;
+  max-height: 100%;
+  overflow: hidden;
+}
+
+.embedded-dashboard .chat-view {
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.embedded-dashboard .activity-view[hidden],
+.embedded-dashboard .chat-view[hidden] {
+  display: none !important;
+}
+
+.embedded-dashboard .chat-messages {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+@media (max-width: 1040px) {
+  .embedded-dashboard .workspace {
+    grid-template-columns: minmax(0, 1fr) 8px var(--chat-panel-width);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .embedded-dashboard .agent-chat-panel {
+    grid-column: 3;
+    grid-row: 1;
+    border-top: 0;
+    border-left: 1px solid var(--line);
+  }
+}
+
+@media (max-width: 720px) {
+  .embedded-dashboard .topbar {
+    align-items: center;
+    flex-direction: row;
+  }
+
+  .embedded-dashboard .workspace {
+    grid-template-columns: minmax(0, 1fr) 8px var(--chat-panel-width);
+    grid-template-rows: minmax(0, 1fr);
+    height: auto;
+    min-height: 0;
+  }
+
+  .embedded-dashboard .stage {
+    grid-column: 1;
+    grid-row: 1;
+    display: block;
+    min-height: 0;
+  }
+
+  .embedded-dashboard .chat-resize-handle {
+    grid-column: 2;
+    grid-row: 1;
+    display: block;
+  }
+
+  .embedded-dashboard .agent-chat-panel {
+    grid-column: 3;
+    grid-row: 1;
+    border-left: 1px solid var(--line);
+  }
+
+  .embedded-dashboard .roster-panel {
+    grid-column: 1;
+    grid-row: 1;
+  }
+
+  .embedded-dashboard .agent-row {
+    grid-template-columns: 34px minmax(0, 1fr);
+    padding: 5px;
+  }
+
+  .embedded-dashboard .agent-token {
+    width: 34px;
+    height: 34px;
+  }
+
+  .embedded-dashboard .agent-token img {
+    width: 42px;
+    height: 42px;
   }
 }

@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     google_token_uri: str = "https://oauth2.googleapis.com/token"
     google_redirect_uri: str = "http://localhost:8000/api/auth/google/callback"
     integration_encryption_secret: str = ""
+    telegram_bot_token: str = ""
+    telegram_target_chat_id: str = ""
+    telegram_auto_publish: bool = False
 
 
 @lru_cache

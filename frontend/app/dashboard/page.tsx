@@ -100,11 +100,12 @@ interface TeamCardData {
 }
 
 const officeAgents = [
-  { id: "coordinator", name: "Coordinator", role: "Lead", image: "/images/agents/coordinator.png", color: "#4F5BD5", state: "online" },
-  { id: "mika", name: "Mika", role: "Strategist", image: "/images/agents/mika.png", color: "#D04F6A", state: "online" },
-  { id: "scout", name: "Scout", role: "Research", image: "/images/agents/scout.png", color: "#0097A7", state: "online" },
-  { id: "dev", name: "Dev", role: "Engineer", image: "/images/agents/dev.png", color: "#13A56F", state: "idle" },
-  { id: "nova", name: "Nova", role: "Operator", image: "/images/agents/nova.png", color: "#C98908", state: "idle" }
+  { id: "all", name: "Team", role: "AI crew", image: "/images/agents/coordinator.png", color: "#1F2933", state: "online" },
+  { id: "coordinator", name: "Atlas", role: "Coordinator", image: "/images/agents/coordinator.png", color: "#4F5BD5", state: "online" },
+  { id: "mika", name: "Ava", role: "Clients", image: "/images/agents/mika.png", color: "#D04F6A", state: "online" },
+  { id: "scout", name: "Scout", role: "Market", image: "/images/agents/scout.png", color: "#0097A7", state: "online" },
+  { id: "dev", name: "Dex", role: "Developer", image: "/images/agents/dev.png", color: "#13A56F", state: "idle" },
+  { id: "nova", name: "Echo", role: "Support", image: "/images/agents/nova.png", color: "#C98908", state: "idle" }
 ];
 
 const businessAgents: AgentData[] = [
@@ -365,7 +366,7 @@ export default function DashboardPage() {
   const [telegramConnected, setTelegramConnected] = useState(false);
   const [telegramBotConnected, setTelegramBotConnected] = useState(false);
   const [telegramBotStatus, setTelegramBotStatus] = useState("");
-  const [selectedOfficeAgent, setSelectedOfficeAgent] = useState("mika");
+  const [selectedOfficeAgent, setSelectedOfficeAgent] = useState("all");
   const officeFrameRef = useRef<HTMLIFrameElement | null>(null);
 
   useEffect(() => {
@@ -625,8 +626,11 @@ export default function DashboardPage() {
                   aria-pressed={selectedOfficeAgent === agent.id}
                   onClick={() => selectOfficeAgent(agent.id)}
                 >
-                  <span className="office-agent-token" style={{ "--agent-color": agent.color } as CSSProperties}>
-                    <Image src={agent.image} width={256} height={256} alt="" />
+                  <span
+                    className={`office-agent-token ${agent.id === "all" ? "initial" : ""}`}
+                    style={{ "--agent-color": agent.color } as CSSProperties}
+                  >
+                    {agent.id === "all" ? <span aria-hidden="true">T</span> : <Image src={agent.image} width={256} height={256} alt="" />}
                   </span>
                   <span>
                     <strong>{agent.name}</strong>

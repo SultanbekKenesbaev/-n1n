@@ -4,6 +4,7 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Agent Office</title>
+    <link rel="icon" href="data:," />
     <link rel="stylesheet" href="./styles.css" />
     <script type="importmap">
       {
@@ -71,7 +72,7 @@
             </div>
             <div>
               <span class="hud-label">Focus</span>
-              <strong id="focusName">Coordinator</strong>
+              <strong id="focusName">Team</strong>
             </div>
           </div>
         </section>
@@ -98,10 +99,7 @@
           </div>
 
           <section id="chatView" class="chat-view" aria-label="Agent chat">
-            <label class="chat-target">
-              <span>Chat with</span>
-              <select id="chatTarget" aria-label="Choose chat target"></select>
-            </label>
+            <select id="chatTarget" class="visually-hidden" aria-label="Choose chat target"></select>
             <div id="chatMessages" class="chat-messages" aria-live="polite"></div>
             <form id="chatComposer" class="chat-composer">
               <input id="chatInput" type="text" autocomplete="off" placeholder="Ask to follow up..." />

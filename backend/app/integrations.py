@@ -47,7 +47,15 @@ def decrypt_token(value: str) -> str:
 
 
 def telegram_status(integration: TelegramBotIntegration | None) -> TelegramBotStatus:
+    settings = get_settings()
     if not integration:
+        if settings.telegram_bot_token and settings.telegram_target_chat_id:
+            return TelegramBotStatus(
+                connected=True,
+                target_chat_id=settings.telegram_target_chat_id,
+                bot_username=None,
+                updated_at=None,
+            )
         return TelegramBotStatus(connected=False)
     return TelegramBotStatus(
         connected=True,
@@ -59,6 +67,22 @@ def telegram_status(integration: TelegramBotIntegration | None) -> TelegramBotSt
 
 def get_telegram_integration(db: Session, user_id: int) -> TelegramBotIntegration | None:
     return db.scalar(select(TelegramBotIntegration).where(TelegramBotIntegration.user_id == user_id))
+
+
+def telegram_credentials(
+    integration: TelegramBotIntegration | None,
+) -> tuple[str, str]:
+    if integration:
+        return decrypt_token(integration.encrypted_bot_token), integration.target_chat_id
+    settings = get_settings()
+    token = settings.telegram_bot_token.strip()
+    target_chat_id = settings.telegram_target_chat_id.strip()
+    if token and target_chat_id:
+        return token, target_chat_id
+    raise HTTPException(
+        status_code=status.HTTP_400_BAD_REQUEST,
+        detail="Telegram Bot is not connected",
+    )
 
 
 def verify_telegram_bot(token: str) -> str | None:
@@ -159,16 +183,11 @@ def publish_telegram(
     db: Session = Depends(get_db),
 ) -> PublishTelegramResponse:
     integration = get_telegram_integration(db, user.id)
-    if not integration:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Telegram Bot is not connected",
-        )
-    token = decrypt_token(integration.encrypted_bot_token)
-    result = send_telegram_message(token, integration.target_chat_id, payload.text.strip())
+    token, target_chat_id = telegram_credentials(integration)
+    result = send_telegram_message(token, target_chat_id, payload.text.strip())
     chat = result.get("chat") if isinstance(result.get("chat"), dict) else {}
     return PublishTelegramResponse(
         ok=True,
         message_id=result.get("message_id"),
-        chat_id=chat.get("id") or integration.target_chat_id,
+        chat_id=chat.get("id") or target_chat_id,
     )

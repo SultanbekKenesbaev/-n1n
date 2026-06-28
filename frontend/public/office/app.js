@@ -30,7 +30,7 @@ const chatResizeHandle = document.querySelector("#chatResizeHandle");
 const AGENT_CHAT_API = "http://127.0.0.1:4173/api/agents/chat";
 const AUTH_API =
   window.location.hostname === "localhost" ? "http://localhost:8000" : "http://127.0.0.1:8000";
-const CHAT_STORAGE_VERSION = 1;
+const CHAT_STORAGE_VERSION = 2;
 const CHAT_WIDTH_STORAGE_KEY = "rebly-office-chat-width";
 const CHAT_WIDTH_MIN = 280;
 const CHAT_WIDTH_MAX = 520;
@@ -41,14 +41,22 @@ let chatSessionId = getOrCreateChatSessionId(accountKey);
 let storageReady = false;
 
 const tasks = [
-  "Competitor scan",
-  "Launch brief",
-  "Pricing memo",
-  "Landing copy",
-  "QA checklist",
-  "Lead scoring",
-  "Support digest",
+  "Route request",
+  "Check context",
+  "Prepare report",
+  "Review answer",
+  "Draft reply",
 ];
+
+const teamProfile = {
+  id: "all",
+  name: "Team",
+  role: "AI crew",
+  color: "#1f2933",
+  state: "focused",
+  bubble: "Ready",
+  active: true,
+};
 
 const slots = [
   new THREE.Vector3(-3.55, 0, 1.25),
@@ -60,19 +68,21 @@ const slots = [
 
 const agents = [
   {
-    name: "Coordinator",
-    role: "Lead",
+    id: "coordinator",
+    name: "Atlas",
+    role: "Coordinator",
     kind: "robot",
     color: "#4f5bd5",
     avatar: "/images/agents/coordinator.png",
     slot: 2,
     state: "focused",
-    bubble: "Routing tasks",
+    bubble: "Ready",
     active: true,
   },
   {
-    name: "Mika",
-    role: "Strategist",
+    id: "mika",
+    name: "Ava",
+    role: "Clients",
     kind: "human",
     color: "#d04f6a",
     avatar: "/images/agents/mika.png",
@@ -82,41 +92,56 @@ const agents = [
     active: true,
   },
   {
+    id: "scout",
     name: "Scout",
-    role: "Research",
+    role: "Market",
     kind: "human",
     color: "#0097a7",
     avatar: "/images/agents/scout.png",
     slot: 1,
-    state: "working",
-    bubble: "Scanning market",
+    state: "idle",
+    bubble: "Ready",
     active: true,
   },
   {
-    name: "Dev",
-    role: "Engineer",
+    id: "dev",
+    name: "Dex",
+    role: "Developer",
     kind: "human",
     color: "#13a56f",
     avatar: "/images/agents/dev.png",
     slot: 3,
     state: "idle",
-    bubble: "Standing by",
+    bubble: "Ready",
     active: true,
   },
   {
-    name: "Nova",
-    role: "Publisher",
+    id: "nova",
+    name: "Echo",
+    role: "Support",
     kind: "human",
     color: "#c98908",
     avatar: "/images/agents/nova.png",
     slot: 4,
     state: "idle",
-    bubble: "Queue clean",
+    bubble: "Ready",
     active: true,
   },
 ];
 
-let selectedChatId = isDashboardEmbed ? "mika" : "all";
+const legacyAuthorToAgentId = {
+  Coordinator: "coordinator",
+  Atlas: "coordinator",
+  Mika: "mika",
+  Ava: "mika",
+  Scout: "scout",
+  Dev: "dev",
+  Dex: "dev",
+  Nova: "nova",
+  Echo: "nova",
+};
+
+let selectedChatId = "all";
 let chatBusy = false;
 let chatThreads = createEmptyChatThreads();
 
@@ -163,7 +188,7 @@ const agentStyles = [
   },
 ];
 
-let selectedIndex = isDashboardEmbed ? 1 : 0;
+let selectedIndex = 0;
 let queued = 3;
 const bubbles = new Map();
 
@@ -585,31 +610,64 @@ function renderRoster() {
   activeCount.textContent = `${visible} / ${agents.length}`;
   teamStatus.textContent = `${visible} agents online`;
 
+  rosterList.appendChild(createRosterRow(teamProfile, {
+    active: selectedChatId === "all",
+    onClick: selectTeam,
+    team: true,
+  }));
+
   agents.forEach((agent, index) => {
-    const row = document.createElement("button");
-    row.className = `agent-row ${selectedIndex === index ? "active" : ""}`;
-    row.type = "button";
-    row.disabled = !agent.active;
-    row.addEventListener("click", () => selectAgent(index));
-
-    row.innerHTML = `
-      <span class="agent-token" style="--agent-color:${agent.color}">
-        <img src="${agent.avatar}" alt="" />
-      </span>
-      <span class="agent-meta">
-        <span class="agent-name">${agent.name}</span>
-        <span class="agent-role">${agent.role}</span>
-      </span>
-      <span class="status-dot ${colorForState(agent.state)}"></span>
-    `;
-
+    const row = createRosterRow(agent, {
+      active: selectedChatId === agentChatId(agent),
+      onClick: () => selectAgent(index),
+    });
     if (!agent.active) row.style.opacity = "0.45";
     rosterList.appendChild(row);
   });
 }
 
+function createRosterRow(item, { active = false, onClick, team = false } = {}) {
+  const row = document.createElement("button");
+  row.className = `agent-row ${team ? "team-row" : ""} ${active ? "active" : ""}`;
+  row.type = "button";
+  row.disabled = !item.active;
+  row.addEventListener("click", onClick);
+
+  const token = document.createElement("span");
+  token.className = `agent-token ${team ? "team-token" : ""}`;
+  token.style.setProperty("--agent-color", item.color);
+  if (team) {
+    agents.slice(0, 4).forEach((agent) => {
+      const image = document.createElement("img");
+      image.src = agent.avatar;
+      image.alt = "";
+      token.appendChild(image);
+    });
+  } else {
+    const image = document.createElement("img");
+    image.src = item.avatar;
+    image.alt = "";
+    token.appendChild(image);
+  }
+
+  const meta = document.createElement("span");
+  meta.className = "agent-meta";
+  const name = document.createElement("span");
+  name.className = "agent-name";
+  name.textContent = item.name;
+  const role = document.createElement("span");
+  role.className = "agent-role";
+  role.textContent = item.role;
+  meta.append(name, role);
+
+  const status = document.createElement("span");
+  status.className = `status-dot ${colorForState(item.state)}`;
+  row.append(token, meta, status);
+  return row;
+}
+
 function agentChatId(agent) {
-  return agent.name.toLowerCase();
+  return agent.id;
 }
 
 function agentByChatId(chatId) {
@@ -617,9 +675,15 @@ function agentByChatId(chatId) {
   return agents.find((agent) => agentChatId(agent) === chatId) || null;
 }
 
+function agentByAuthor(author) {
+  const mappedId = legacyAuthorToAgentId[author];
+  return mappedId ? agentByChatId(mappedId) : agents.find((item) => item.name === author);
+}
+
 function chatColor(chatId, author) {
   if (chatId === "user") return "#4f5bd5";
-  const agent = agentByChatId(chatId) || agents.find((item) => item.name === author);
+  if (chatId === "all" && author === "Team") return teamProfile.color;
+  const agent = agentByChatId(chatId) || agentByAuthor(author);
   return agent?.color || "#4f5bd5";
 }
 
@@ -629,7 +693,8 @@ function chatInitial(author) {
 
 function chatAvatar(chatId, author) {
   if (chatId === "user") return "";
-  const agent = agentByChatId(chatId) || agents.find((item) => item.name === author);
+  if (chatId === "all" && author === "Team") return "";
+  const agent = agentByChatId(chatId) || agentByAuthor(author);
   return agent?.avatar || "";
 }
 
@@ -778,11 +843,17 @@ function hydrateChatThreads(value) {
       thread
         .filter((message) => message && typeof message.text === "string")
         .map((message) => ({
-          author: String(message.author || "Agent"),
+          author: displayAuthor(String(message.author || "Agent")),
           type: message.type === "user" ? "user" : "agent",
           from: String(message.from || ""),
           text: String(message.text || ""),
           time: String(message.time || ""),
+          phase: String(message.phase || ""),
+          audience: String(message.audience || ""),
+          to: String(message.to || ""),
+          isFinal: Boolean(message.isFinal),
+          runId: String(message.runId || ""),
+          animate: false,
           pendingPublish: normalizePendingPublish(message.pendingPublish),
         })),
     );
@@ -798,6 +869,7 @@ function normalizePendingPublish(value) {
     text: String(value.text || ""),
     runId: String(value.runId || ""),
     source: String(value.source || "team"),
+    autoPublish: Boolean(value.autoPublish),
     error: String(value.error || ""),
   };
 }
@@ -856,6 +928,7 @@ function selectedThread() {
 }
 
 function renderChatTargets() {
+  if (!chatTarget) return;
   chatTarget.innerHTML = "";
   const targets = [
     { id: "all", label: "Team" },
@@ -879,15 +952,17 @@ function renderChatMessages() {
     empty.className = "chat-bubble";
     empty.textContent =
       selectedChatId === "all"
-        ? "Team chat is ready. Ask the agents to coordinate."
-        : `Chat with ${agentByChatId(selectedChatId)?.name || "agent"} is ready.`;
+        ? "Team is ready. Send a task and Atlas will route it."
+        : `${agentByChatId(selectedChatId)?.name || "Agent"} is ready.`;
     chatMessages.appendChild(empty);
     return;
   }
 
   thread.forEach((message) => {
     const row = document.createElement("article");
-    row.className = `chat-message ${message.type === "user" ? "user" : "agent"}`;
+    row.className = `chat-message ${message.type === "user" ? "user" : "agent"} ${
+      message.animate ? "message-enter" : ""
+    } ${message.phase ? `phase-${message.phase}` : ""}`;
 
     const avatar = document.createElement("span");
     avatar.className = "chat-avatar";
@@ -924,6 +999,11 @@ function renderChatMessages() {
     }
     row.append(avatar, body);
     chatMessages.appendChild(row);
+    if (message.animate) {
+      window.requestAnimationFrame(() => {
+        message.animate = false;
+      });
+    }
   });
 
   chatMessages.scrollTop = chatMessages.scrollHeight;
@@ -942,7 +1022,7 @@ function createPublishCard(chatId, message) {
   const action = document.createElement("button");
   action.type = "button";
   action.textContent = publishButtonText(pending.status);
-  action.disabled = pending.status === "publishing" || pending.status === "published";
+  action.disabled = pending.status === "auto_publish_pending" || pending.status === "publishing" || pending.status === "published";
   action.addEventListener("click", () => publishPendingMessage(chatId, message));
 
   card.append(title, preview, action);
@@ -955,32 +1035,34 @@ function createPublishCard(chatId, message) {
 }
 
 function publishButtonText(status) {
+  if (status === "auto_publish_pending") return "Auto publishing...";
   if (status === "publishing") return "Publishing...";
   if (status === "published") return "Published";
   if (status === "error") return "Retry publish";
   return "Publish";
 }
 
-function appendChatMessage(chatId, message) {
+function appendChatMessage(chatId, message, { save = true } = {}) {
   if (!chatThreads.has(chatId)) {
     chatThreads.set(chatId, []);
   }
   const entry = {
     time: currentChatTime(),
+    animate: message.type !== "user",
     ...message,
   };
   chatThreads.get(chatId).push(entry);
-  saveChatState();
+  if (save) saveChatState();
   if (chatId === selectedChatId) renderChatMessages();
   return entry;
 }
 
-function replaceChatMessage(chatId, current, next) {
+function replaceChatMessage(chatId, current, next, { save = true } = {}) {
   const thread = chatThreads.get(chatId) || [];
   const index = thread.indexOf(current);
   if (index >= 0) {
-    thread.splice(index, 1, { time: currentChatTime(), ...next });
-    saveChatState();
+    thread.splice(index, 1, { time: currentChatTime(), animate: true, ...next });
+    if (save) saveChatState();
   }
   if (chatId === selectedChatId) renderChatMessages();
 }
@@ -988,16 +1070,31 @@ function replaceChatMessage(chatId, current, next) {
 function normalizeAgentMessages(result, fallbackChatId) {
   const source = Array.isArray(result.messages) && result.messages.length
     ? result.messages
-    : [{ author: agentByChatId(fallbackChatId)?.name || "Coordinator", text: result.reply || "" }];
+    : [{ author: agentByChatId(fallbackChatId)?.name || "Atlas", text: result.reply || "" }];
 
   return source
     .filter((message) => message?.text)
     .map((message) => ({
-      author: message.author || agentByChatId(message.from)?.name || "Coordinator",
+      author: displayAuthor(message.author || agentByChatId(message.from)?.name || "Atlas"),
       type: "agent",
       from: message.from || fallbackChatId,
       text: message.text,
+      phase: message.phase || "",
+      audience: message.audience || "",
+      to: message.to || "",
+      isFinal: Boolean(message.isFinal),
+      runId: message.runId || "",
+      pendingPublish: normalizePendingPublish(message.pendingPublish),
     }));
+}
+
+function displayAuthor(author) {
+  return {
+    Coordinator: "Atlas",
+    Mika: "Ava",
+    Dev: "Dex",
+    Nova: "Echo",
+  }[author] || author;
 }
 
 function agentErrorReply(error) {
@@ -1020,36 +1117,181 @@ function setPanelTab(tab) {
 }
 
 async function requestAgentChat(chatId, text) {
-  const controller = new AbortController();
-  const timeout = window.setTimeout(() => controller.abort(), 90000);
-  try {
-    const history = selectedThread()
-      .filter((message) => message.text !== "Thinking...")
-      .slice(-12)
-      .map((message) => ({
-        role: message.type === "user" ? "user" : "assistant",
-        author: message.author,
-        text: message.text,
-      }));
-    const response = await fetch(AGENT_CHAT_API, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        agentId: chatId,
-        message: text,
-        history,
-        sessionId: chatSessionId,
-        accountId: accountKey,
-      }),
-      signal: controller.signal,
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      throw new Error(payload.error || `HTTP ${response.status}`);
-    }
-    return payload;
-  } finally {
-    window.clearTimeout(timeout);
+  const history = selectedThread()
+    .filter((message) => message.text !== "Thinking...")
+    .slice(-12)
+    .map((message) => ({
+      role: message.type === "user" ? "user" : "assistant",
+      author: message.author,
+      text: message.text,
+    }));
+  const response = await fetch(AGENT_CHAT_API, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      agentId: chatId,
+      message: text,
+      history,
+      sessionId: chatSessionId,
+      accountId: accountKey,
+    }),
+  });
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(payload.error || `HTTP ${response.status}`);
+  }
+  return payload;
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function detectUserLanguage(text) {
+  const clean = text.trim();
+  if (!clean) return "en";
+  const cyrillic = (clean.match(/[А-Яа-яЁё]/g) || []).length;
+  const latin = (clean.match(/[A-Za-z]/g) || []).length;
+  if (latin > cyrillic * 1.5) return "en";
+  return "ru";
+}
+
+function uiText(key, lang = "ru") {
+  const copy = {
+    accepted: {
+      ru: "Принял задачу. Определяю маршрут команды...",
+      en: "Task received. Choosing the team route...",
+    },
+    directAccepted: {
+      ru: "Принял сообщение. Готовлю ответ...",
+      en: "Message received. Preparing the reply...",
+    },
+    teamActivity: {
+      ru: "Задача получена в Team-чате.",
+      en: "User task received in Team chat.",
+    },
+    directActivity: {
+      ru: "Прямое сообщение получено.",
+      en: "Direct message received.",
+    },
+    empty: {
+      ru: "AI вернул пустой ответ.",
+      en: "AI returned an empty response.",
+    },
+  };
+  return copy[key]?.[lang] || copy[key]?.ru || key;
+}
+
+function messageAgentId(message, fallbackChatId = "coordinator") {
+  if (message.from && message.from !== "team" && message.from !== "user") return message.from;
+  const mapped = legacyAuthorToAgentId[message.author];
+  if (mapped) return mapped;
+  return fallbackChatId === "all" ? "coordinator" : fallbackChatId;
+}
+
+function phaseActivity(message, chatId) {
+  const phase = message.phase || "";
+  const agentId = messageAgentId(message, chatId);
+  const agent = agentByChatId(agentId) || agents[0];
+  if (message.from === "system") {
+    return { agent, state: "focused", action: "error", bubble: "Needs attention", detail: message.text };
+  }
+  if (phase === "routing") {
+    return {
+      agent,
+      state: "working",
+      action: "routing",
+      bubble: "Routing task",
+      detail: "Sets the route, assigns specialists, and frames the next step.",
+    };
+  }
+  if (phase === "internal") {
+    return {
+      agent,
+      state: "working",
+      action: message.to ? `to ${displayTargetName(message.to)}` : "reporting",
+      bubble: message.to ? `Report to ${displayTargetName(message.to)}` : "Reporting",
+      detail: message.text,
+    };
+  }
+  if (phase === "question") {
+    return {
+      agent,
+      state: "focused",
+      action: "asking",
+      bubble: "Question",
+      detail: message.text,
+    };
+  }
+  if (phase === "final" || message.isFinal) {
+    return {
+      agent,
+      state: "happy",
+      action: "final",
+      bubble: "Final ready",
+      detail: "Final answer assembled for the user.",
+    };
+  }
+  return {
+    agent,
+    state: "focused",
+    action: "replying",
+    bubble: "Replying",
+    detail: message.text,
+  };
+}
+
+function displayTargetName(target) {
+  if (!target || target === "team") return "Team";
+  if (target === "coordinator") return "Atlas";
+  return agentByChatId(target)?.name || displayAuthor(target);
+}
+
+function setAgentLiveState(agent, state, bubble) {
+  if (!agent) return;
+  agent.state = state;
+  agent.bubble = bubble;
+  renderRoster();
+}
+
+function markTeamAccepted(chatId, text) {
+  const lang = detectUserLanguage(text);
+  const agent = chatId === "all" ? agentByChatId("coordinator") : agentByChatId(chatId);
+  const bubble = chatId === "all" ? "Reading task" : "Reading";
+  setAgentLiveState(agent, "working", bubble);
+  addActivity(
+    agent || agents[0],
+    chatId === "all" ? "accepted" : "direct",
+    chatId === "all" ? uiText("teamActivity", lang) : uiText("directActivity", lang),
+  );
+  return appendChatMessage(chatId, {
+    author: chatId === "all" ? "Atlas" : agent?.name || "Agent",
+    type: "agent",
+    from: chatId === "all" ? "coordinator" : chatId,
+    phase: "routing",
+    audience: "team",
+    text: chatId === "all" ? uiText("accepted", lang) : uiText("directAccepted", lang),
+  });
+}
+
+async function playAgentMessages(chatId, loadingEntry, replies) {
+  const first = replies[0] || agentErrorReply(new Error(uiText("empty", "ru")));
+  const firstActivity = phaseActivity(first, chatId);
+  setAgentLiveState(firstActivity.agent, firstActivity.state, firstActivity.bubble);
+  addActivity(firstActivity.agent, firstActivity.action, firstActivity.detail);
+  if (loadingEntry) {
+    replaceChatMessage(chatId, loadingEntry, first);
+  } else {
+    appendChatMessage(chatId, first);
+  }
+  await sleep(520);
+
+  for (const reply of replies.slice(1)) {
+    const activity = phaseActivity(reply, chatId);
+    setAgentLiveState(activity.agent, activity.state, activity.bubble);
+    addActivity(activity.agent, activity.action, activity.detail);
+    appendChatMessage(chatId, reply);
+    await sleep(reply.phase === "final" ? 220 : 680);
   }
 }
 
@@ -1061,33 +1303,59 @@ async function sendChatMessage(event) {
   const chatId = selectedChatId;
   chatInput.value = "";
   appendChatMessage(chatId, { author: "You", type: "user", from: "user", text });
-  const loading = appendChatMessage(chatId, {
-    author: chatId === "all" ? "Coordinator" : agentByChatId(chatId)?.name || "Agent",
-    type: "agent",
-    from: chatId === "all" ? "coordinator" : chatId,
-    text: "Thinking...",
-  });
+  let loading = null;
+  if (chatId === "all") {
+    loading = markTeamAccepted(chatId, text);
+  } else {
+    const lang = detectUserLanguage(text);
+    const agent = agentByChatId(chatId);
+    setAgentLiveState(agent, "working", "Reading");
+    addActivity(agent || agents[0], "direct", uiText("directActivity", lang));
+  }
 
   chatBusy = true;
   chatSend.disabled = true;
-  addActivity(agents[selectedIndex], "chat", chatId === "all" ? "Team chat received a new request." : `${agentByChatId(chatId)?.name || "Agent"} received a direct message.`);
 
   try {
     const result = await requestAgentChat(chatId, text);
     const replies = normalizeAgentMessages(result, chatId);
-    replaceChatMessage(chatId, loading, replies[0] || agentErrorReply(new Error("AI вернул пустой ответ.")));
-    replies.slice(1).forEach((reply) => appendChatMessage(chatId, reply));
+    await playAgentMessages(chatId, loading, replies);
     if (result.pendingPublish?.text) {
-      appendChatMessage(chatId, {
-        author: "Nova",
+      const publishMessage = {
+        author: "Echo",
         type: "agent",
         from: "nova",
-        text: "Публикация готова. Проверь текст и нажми Publish, когда можно отправлять в Telegram.",
+        phase: "internal",
+        to: "coordinator",
+        text: result.pendingPublish.autoPublish
+          ? "Публикация готова. Echo отправляет ее в Telegram автоматически."
+          : "Публикация готова. Проверь текст и нажми Publish, когда можно отправлять в Telegram.",
         pendingPublish: result.pendingPublish,
-      });
+      };
+      const activity = phaseActivity(publishMessage, chatId);
+      setAgentLiveState(activity.agent, activity.state, "Publish ready");
+      addActivity(
+        activity.agent,
+        result.pendingPublish.autoPublish ? "auto-publish" : "publish-ready",
+        result.pendingPublish.autoPublish
+          ? "Sending the approved Telegram text automatically."
+          : "Prepared a Telegram publish card for approval.",
+      );
+      const entry = appendChatMessage(chatId, publishMessage);
+      if (result.pendingPublish.autoPublish) {
+        await publishPendingMessage(chatId, entry);
+      }
     }
   } catch (error) {
-    replaceChatMessage(chatId, loading, agentErrorReply(error));
+    const errorReply = agentErrorReply(error);
+    const activity = phaseActivity(errorReply, chatId);
+    setAgentLiveState(activity.agent, activity.state, activity.bubble);
+    addActivity(activity.agent, activity.action, activity.detail);
+    if (loading) {
+      replaceChatMessage(chatId, loading, errorReply);
+    } else {
+      appendChatMessage(chatId, errorReply);
+    }
   } finally {
     chatBusy = false;
     chatSend.disabled = false;
@@ -1119,7 +1387,7 @@ async function publishPendingMessage(chatId, message) {
     pending.status = "published";
     saveChatState();
     appendChatMessage(chatId, {
-      author: "Nova",
+      author: "Echo",
       type: "agent",
       from: "nova",
       text: "Опубликовано в Telegram.",
@@ -1133,19 +1401,39 @@ async function publishPendingMessage(chatId, message) {
 }
 
 function addActivity(agent, action, detail) {
+  if (!agent || !activityFeed) return;
   const item = document.createElement("article");
   item.className = "activity-item";
   item.style.borderLeftColor = agent.color;
   const now = new Date();
-  item.innerHTML = `
-    <strong>${agent.name} · ${action}</strong>
-    <p>${detail}</p>
-    <small>${now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}</small>
-  `;
+  const title = document.createElement("strong");
+  title.textContent = `${agent.name} · ${action}`;
+  const body = document.createElement("p");
+  body.textContent = detail;
+  const time = document.createElement("small");
+  time.textContent = now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+  item.append(title, body, time);
   activityFeed.prepend(item);
   while (activityFeed.children.length > 12) {
     activityFeed.lastElementChild.remove();
   }
+}
+
+function selectTeam() {
+  selectedChatId = "all";
+  selectedIndex = 0;
+  focusName.textContent = "Team";
+  teamProfile.state = "focused";
+  agents.forEach((agent) => {
+    if (agent.state !== "working") {
+      agent.state = agent.id === "coordinator" ? "focused" : "idle";
+      agent.bubble = agent.id === "coordinator" ? "Team ready" : "Ready";
+    }
+  });
+  saveChatState();
+  renderRoster();
+  renderChatMessages();
+  notifyOfficeSelection("all");
 }
 
 function selectAgent(index) {
@@ -1157,7 +1445,7 @@ function selectAgent(index) {
   saveChatState();
   agent.state = agent.state === "working" ? "working" : "focused";
   agent.bubble = agent.state === "working" ? agent.bubble : "Focused";
-  addActivity(agent, "selected", `${agent.role} is now in focus.`);
+  addActivity(agent, "selected", `${agent.name} is now in focus.`);
   renderRoster();
   renderChatTargets();
   renderChatMessages();
@@ -1165,6 +1453,11 @@ function selectAgent(index) {
 }
 
 function selectAgentById(agentId) {
+  if (agentId === "all") {
+    setPanelTab("chat");
+    selectTeam();
+    return true;
+  }
   const index = agents.findIndex((agent) => agentChatId(agent) === agentId);
   if (index < 0) return false;
   setPanelTab("chat");
@@ -1501,10 +1794,19 @@ if (renderer) {
   agents.forEach(createAgentModel);
 }
 loadChatState(accountKey);
-if (isDashboardEmbed && agents[selectedIndex]) {
-  focusName.textContent = agents[selectedIndex].name;
-  agents[selectedIndex].state = "focused";
-  agents[selectedIndex].bubble = "Focused";
+if (selectedChatId === "all") {
+  focusName.textContent = "Team";
+  agents[0].state = "focused";
+  agents[0].bubble = "Team ready";
+} else {
+  const restoredAgent = agentByChatId(selectedChatId);
+  const restoredIndex = agents.findIndex((agent) => agent.id === restoredAgent?.id);
+  if (restoredIndex >= 0) {
+    selectedIndex = restoredIndex;
+    focusName.textContent = restoredAgent.name;
+    restoredAgent.state = "focused";
+    restoredAgent.bubble = "Focused";
+  }
 }
 
 document.querySelector("#assignBtn").addEventListener("click", () => assignTask());
@@ -1516,15 +1818,12 @@ canvas.addEventListener("click", onCanvasClick);
 window.addEventListener("resize", resize);
 chatTab.addEventListener("click", () => setPanelTab("chat"));
 activityTab.addEventListener("click", () => setPanelTab("activity"));
-chatTarget.addEventListener("change", () => {
+chatTarget?.addEventListener("change", () => {
   const nextChatId = chatTarget.value;
   if (nextChatId !== "all" && selectAgentById(nextChatId)) {
     return;
   }
-  selectedChatId = nextChatId;
-  saveChatState();
-  renderChatMessages();
-  notifyOfficeSelection(selectedChatId);
+  selectTeam();
 });
 chatComposer.addEventListener("submit", sendChatMessage);
 
@@ -1534,12 +1833,10 @@ renderRoster();
 renderChatTargets();
 renderChatMessages();
 resolveAccountContext();
-addActivity(agents[0], "online", "Workspace cell is ready.");
-addActivity(agents[2], "working", "Scanning market signals.");
+addActivity(agents[0], "online", "Team workspace is ready.");
 updateClock();
 window.setInterval(updateClock, 15000);
 resize();
-startAutomation();
 animate();
 
 window.agentOfficeDebug = { agents, camera, controls, renderer, scene };

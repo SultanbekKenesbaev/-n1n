@@ -9,31 +9,31 @@ const teamChat = {
   role: "Team",
   color: "#1f2933",
   state: "ready",
-  mission: "Общий чат всей команды: Coordinator, Mika, Scout, Dev и Nova отвечают как единая AI-команда.",
-  model: "Coordinator gpt-5.5 + agent models",
-  tools: "OpenRouter, Codex fallback, память, ссылки, файлы, CRM, CSV, фото/видео context",
+  mission: "Общий чат всей команды: Atlas, Ava, Scout, Dex и Echo отвечают как единая AI-команда.",
+  model: "Codex CLI: Atlas + agent models",
+  tools: "Codex CLI, OpenRouter fallback, память, ссылки, файлы, CRM, CSV, фото/видео context",
 };
 
 const agents = [
   {
     id: "coordinator",
-    name: "Coordinator",
-    role: "Lead / Team Orchestrator",
+    name: "Atlas",
+    role: "Team Coordinator",
     color: "#4f5bd5",
     state: "ready",
     mission: "Arman-характер: четкий операционный тимлид. Понимает задачу, задает точные вопросы, распределяет работу, проверяет отчеты агентов и собирает финальный результат.",
-    model: "openai/gpt-5.5",
-    tools: "OpenRouter, Codex fallback, память команды, CRM-сводка, ссылки, файлы, финальная сборка",
+    model: "codex:gpt-5.5",
+    tools: "Codex CLI, OpenRouter fallback, память команды, CRM-сводка, ссылки, файлы, финальная сборка",
   },
   {
     id: "mika",
-    name: "Mika",
-    role: "Sales Strategist / Client Closer",
+    name: "Ava",
+    role: "Client Communication / Sales",
     color: "#d04f6a",
     state: "ready",
     mission: "Умный продавец-консультант: диагностирует клиента, формирует офферы, отвечает на возражения, пишет переписки и ведет к следующему шагу без давления.",
-    model: "openai/gpt-5.4",
-    tools: "OpenRouter, Codex fallback, Sales-память, CRM, входящие лиды, ссылки, файлы",
+    model: "codex:gpt-5.4",
+    tools: "Codex CLI, OpenRouter fallback, Sales-память, CRM, входящие лиды, ссылки, файлы",
   },
   {
     id: "scout",
@@ -42,28 +42,28 @@ const agents = [
     color: "#0097a7",
     state: "ready",
     mission: "Контент-стратег и исследователь: находит аудиторию, боли, рыночные углы, хуки, темы, Reels/посты/сторис и связывает контент с бизнес-целью.",
-    model: "google/gemini-3.1-pro-preview",
-    tools: "OpenRouter, Codex fallback, Content-память, ссылки, фото/видео context, рыночные материалы",
+    model: "codex:gpt-5.4",
+    tools: "Codex CLI, OpenRouter fallback, Content-память, ссылки, фото/видео context, рыночные материалы",
   },
   {
     id: "dev",
-    name: "Dev",
-    role: "Business Analyst / Growth Engineer",
+    name: "Dex",
+    role: "Developer / Growth Engineer",
     color: "#13a56f",
     state: "ready",
     mission: "Разбирает бизнес как систему: модель, процессы, воронку, юнит-экономику, метрики, риски, узкие места, гипотезы и план улучшений.",
-    model: "openai/gpt-5.5",
-    tools: "OpenRouter, Codex fallback, Business-память, CRM, CSV/таблицы, метрики, ссылки",
+    model: "codex:gpt-5.5",
+    tools: "Codex CLI, OpenRouter fallback, Business-память, CRM, CSV/таблицы, метрики, ссылки",
   },
   {
     id: "nova",
-    name: "Nova",
-    role: "Support, Community & Publishing Operator",
+    name: "Echo",
+    role: "Support / Client Replies",
     color: "#c98908",
     state: "ready",
     mission: "Оператор коммуникаций и публикаций: отвечает на комментарии, Direct/DM, отзывы, FAQ, готовит approved-посты и публикует в Telegram только после подтверждения.",
-    model: "google/gemini-3.1-flash-lite",
-    tools: "OpenRouter, Codex fallback, Support-память, CRM, входящие сообщения, FAQ, Telegram publish",
+    model: "codex:gpt-5.4-mini",
+    tools: "Codex CLI, OpenRouter fallback, Support-память, CRM, входящие сообщения, FAQ, Telegram publish",
   },
 ];
 
@@ -265,10 +265,12 @@ async function sendMessage(text) {
     replaceLastLoading(chatId, messages[0]);
     messages.slice(1).forEach((message) => appendMessage(chatId, message));
     if (result.pendingPublish?.text) {
-      appendMessage(chatId, {
-        author: "Nova",
+      const publishMessage = {
+        author: "Echo",
         type: "agent",
-        text: "Публикация готова. Проверь текст и нажми Publish, когда можно отправлять в Telegram.",
+        text: result.pendingPublish.autoPublish
+          ? "Публикация готова. Echo отправляет ее в Telegram автоматически."
+          : "Публикация готова. Проверь текст и нажми Publish, когда можно отправлять в Telegram.",
         phase: "final",
         audience: "user",
         from: "nova",
@@ -276,7 +278,11 @@ async function sendMessage(text) {
         isFinal: false,
         runId: result.pendingPublish.runId || "",
         pendingPublish: result.pendingPublish,
-      });
+      };
+      appendMessage(chatId, publishMessage);
+      if (result.pendingPublish.autoPublish) {
+        await publishPendingMessage(chatId, publishMessage);
+      }
     }
     selectedFiles = [];
     fileInput.value = "";
@@ -320,6 +326,7 @@ function normalizePendingPublish(value) {
     text: String(value.text || ""),
     runId: String(value.runId || ""),
     source: String(value.source || "team"),
+    autoPublish: Boolean(value.autoPublish),
     error: String(value.error || ""),
   };
 }
@@ -335,7 +342,10 @@ function createPublishCard(chatId, message) {
   const button = document.createElement("button");
   button.type = "button";
   button.textContent = publishButtonText(pendingPublish.status);
-  button.disabled = pendingPublish.status === "publishing" || pendingPublish.status === "published";
+  button.disabled =
+    pendingPublish.status === "auto_publish_pending" ||
+    pendingPublish.status === "publishing" ||
+    pendingPublish.status === "published";
   button.addEventListener("click", () => publishPendingMessage(chatId, message));
   card.append(title, preview, button);
   if (pendingPublish.error) {
@@ -347,6 +357,7 @@ function createPublishCard(chatId, message) {
 }
 
 function publishButtonText(status) {
+  if (status === "auto_publish_pending") return "Auto publishing...";
   if (status === "publishing") return "Publishing...";
   if (status === "published") return "Published";
   if (status === "error") return "Retry publish";
@@ -378,7 +389,7 @@ async function publishPendingMessage(chatId, message) {
     pendingPublish.status = "published";
     saveThreads();
     appendMessage(chatId, {
-      author: "Nova",
+      author: "Echo",
       type: "agent",
       text: "Опубликовано в Telegram.",
       phase: "final",
