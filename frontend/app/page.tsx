@@ -2,7 +2,7 @@
 
 import Image from "next/image";
 import Link from "next/link";
-import { Bot, BriefcaseBusiness, Check, Moon, Send, Sparkles, Sun, UsersRound } from "lucide-react";
+import { ArrowRight, Bot, Check, Moon, Sun } from "lucide-react";
 import { useEffect, useState } from "react";
 
 const plans = [
@@ -86,8 +86,26 @@ function Header() {
   );
 }
 
-function MiniAvatar({ skin, hair, shirt }: { skin: string; hair: string; shirt: string }) {
-  return <span className="mini-avatar" style={{ "--skin": skin, "--hair": hair, "--shirt": shirt } as React.CSSProperties} />;
+function InstagramLogo() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="5" y="5" width="14" height="14" rx="4" fill="none" stroke="currentColor" strokeWidth="2.4" />
+      <circle cx="12" cy="12" r="3.2" fill="none" stroke="currentColor" strokeWidth="2.4" />
+      <circle cx="16.7" cy="7.5" r="1.2" fill="currentColor" />
+    </svg>
+  );
+}
+
+function TelegramLogo() {
+  return (
+    <svg viewBox="0 0 24 24" aria-hidden="true">
+      <path d="M21 4.8 17.9 20c-.2 1-.9 1.2-1.7.8l-4.7-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.6-.6-.3L5.8 13.7 1.1 12.2c-1-.3-1-1 0-1.4L19.5 3.7c.9-.3 1.7.2 1.5 1.1Z" fill="currentColor" />
+    </svg>
+  );
+}
+
+function StepAgent({ src, alt }: { src: string; alt: string }) {
+  return <Image className="step-agent" src={src} width={608} height={608} alt={alt} />;
 }
 
 export default function HomePage() {
@@ -96,29 +114,69 @@ export default function HomePage() {
       <Header />
       <main>
         <section className="hero">
+          <div className="hero-card hero-card-instagram">
+            <span className="hero-card-icon instagram-mark">
+              <InstagramLogo />
+            </span>
+            <span>
+              <strong>Instagram DM</strong>
+              <small>New message received</small>
+            </span>
+            <i aria-hidden="true" />
+          </div>
+
+          <div className="hero-card hero-card-telegram">
+            <span className="hero-card-icon telegram-mark">
+              <TelegramLogo />
+            </span>
+            <span>
+              <strong>Telegram Lead</strong>
+              <small>New lead captured</small>
+            </span>
+            <i aria-hidden="true" />
+          </div>
+
+          <div className="hero-card hero-card-crm">
+            <span className="hero-card-icon crm-mark">
+              <Check size={22} />
+            </span>
+            <span>
+              <strong>CRM Update</strong>
+              <small>Contact added</small>
+            </span>
+            <i aria-hidden="true" />
+          </div>
+
+          <div className="hero-card hero-card-follow">
+            <span className="hero-card-icon follow-mark">
+              <Bot size={22} />
+            </span>
+            <span>
+              <strong>Follow-up Ready</strong>
+              <small>AI agent scheduled</small>
+            </span>
+            <i aria-hidden="true" />
+          </div>
+
+          <Image className="hero-person hero-person-left" src="/images/member-man.png" width={608} height={608} alt="Rebly AI team member" priority />
+          <Image className="hero-person hero-person-right" src="/images/member-woman.png" width={608} height={608} alt="Rebly AI team coordinator" priority />
+
           <div className="hero-stack">
-            <div className="speech">What task do you want to solve?</div>
-            <Image className="hero-avatar" src="/images/coordinator.png" width={608} height={608} alt="Rebly AI coordinator" priority />
-            <div className="nameplate">Coordinator</div>
-            <div className="prompt-row">
-              <div className="prompt-box">e.g. automate Instagram DMs and Telegram follow-ups...</div>
-              <Link className="icon-button send-button" href="/auth?mode=signup" aria-label="Start">
-                <Send size={24} />
-              </Link>
-            </div>
-            <div className="chips">
-              <span className="chip">
-                <BriefcaseBusiness size={16} />
-                Business AI
+            <h1>
+              Build your <span>AI team</span> in one workspace.
+            </h1>
+            <p>
+              Connect Instagram, Telegram, CRM and your tools. Automate conversations, follow-ups and business workflows with AI agents that work for you - 24/7.
+            </p>
+            <Link className="hero-main-cta" href="/auth?mode=signup">
+              GET STARTED
+              <ArrowRight size={24} strokeWidth={2.5} />
+            </Link>
+            <div className="hero-note">
+              <span>
+                <Check size={12} strokeWidth={3} />
               </span>
-              <span className="chip">
-                <UsersRound size={16} />
-                Instagram
-              </span>
-              <span className="chip">
-                <Sparkles size={16} />
-                Telegram
-              </span>
+              No credit card required. Get started in minutes.
             </div>
           </div>
         </section>
@@ -131,8 +189,8 @@ export default function HomePage() {
           <div className="steps">
             <article className="step">
               <span className="step-number">01</span>
-              <div className="step-people">
-                <MiniAvatar skin="#d89b72" hair="#172033" shirt="#1360aa" />
+              <div className="step-people step-people-solo">
+                <StepAgent src="/images/member-woman.png" alt="Business AI agent" />
               </div>
               <h3>Subscribe</h3>
               <p>Choose a plan and open your Rebly AI workspace.</p>
@@ -140,9 +198,8 @@ export default function HomePage() {
             <article className="step">
               <span className="step-number">02</span>
               <div className="step-people">
-                <MiniAvatar skin="#9b6a4d" hair="#222634" shirt="#0c98a8" />
-                <MiniAvatar skin="#d59668" hair="#243044" shirt="#6b70e8" />
-                <MiniAvatar skin="#c78c63" hair="#151923" shirt="#94a3b8" />
+                <StepAgent src="/images/member-man.png" alt="Business AI agent" />
+                <StepAgent src="/images/agents/dev.png" alt="Business AI agent" />
               </div>
               <h3>Hire your team</h3>
               <p>Business AI agents coordinate Instagram and Telegram work.</p>
@@ -150,9 +207,8 @@ export default function HomePage() {
             <article className="step">
               <span className="step-number">03</span>
               <div className="step-people">
-                <MiniAvatar skin="#e0aa80" hair="#394150" shirt="#7c8cff" />
-                <MiniAvatar skin="#d59668" hair="#7a4c36" shirt="#f0b84d" />
-                <MiniAvatar skin="#8f6045" hair="#1f2937" shirt="#111827" />
+                <StepAgent src="/images/agents/nova.png" alt="Business AI agent" />
+                <StepAgent src="/images/agents/coordinator.png" alt="Business AI agent" />
               </div>
               <h3>Assign tasks</h3>
               <p>Track replies, follow-ups, and daily activity in one dashboard.</p>
