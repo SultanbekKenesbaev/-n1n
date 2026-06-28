@@ -28,7 +28,9 @@ const chatInput = document.querySelector("#chatInput");
 const chatSend = document.querySelector("#chatSend");
 const chatResizeHandle = document.querySelector("#chatResizeHandle");
 
-const AGENT_CHAT_API = "http://127.0.0.1:4173/api/agents/chat";
+const AGENT_CHAT_API_PATH = "/api/agents/chat";
+const AGENT_CHAT_TIMEOUT_MS = 240000;
+const AGENT_CHAT_API_CANDIDATES = buildAgentChatApiCandidates();
 const AUTH_API =
   window.location.hostname === "localhost" ? "http://localhost:8000" : "http://127.0.0.1:8000";
 const CHAT_STORAGE_VERSION = 2;
@@ -40,6 +42,15 @@ const MAIN_WIDTH_MIN = 520;
 let accountKey = getGuestAccountKey();
 let chatSessionId = getOrCreateChatSessionId(accountKey);
 let storageReady = false;
+
+function buildAgentChatApiCandidates() {
+  const protocol = window.location.protocol || "http:";
+  const host = window.location.hostname || "127.0.0.1";
+  const preferred = `${protocol}//${host}:4173${AGENT_CHAT_API_PATH}`;
+  const loopback = host === "127.0.0.1" ? "localhost" : "127.0.0.1";
+  const fallback = `${protocol}//${loopback}:4173${AGENT_CHAT_API_PATH}`;
+  return [...new Set([preferred, fallback])];
+}
 
 const tasks = [
   "Route request",
@@ -1888,22 +1899,43 @@ async function requestAgentChat(chatId, text) {
       author: message.author,
       text: message.text,
     }));
-  const response = await fetch(AGENT_CHAT_API, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      agentId: chatId,
-      message: text,
-      history,
-      sessionId: chatSessionId,
-      accountId: accountKey,
-    }),
+  const body = JSON.stringify({
+    agentId: chatId,
+    message: text,
+    history,
+    sessionId: chatSessionId,
+    accountId: accountKey,
   });
-  const payload = await response.json().catch(() => ({}));
-  if (!response.ok) {
-    throw new Error(payload.error || `HTTP ${response.status}`);
+  let lastError = null;
+  for (const [index, apiUrl] of AGENT_CHAT_API_CANDIDATES.entries()) {
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), AGENT_CHAT_TIMEOUT_MS);
+    try {
+      const response = await fetch(apiUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body,
+        signal: controller.signal,
+      });
+      const payload = await response.json().catch(() => ({}));
+      if (!response.ok) {
+        throw new Error(payload.error || `HTTP ${response.status}`);
+      }
+      return payload;
+    } catch (error) {
+      const timedOut = error instanceof DOMException && error.name === "AbortError";
+      lastError = timedOut
+        ? new Error("Team request timed out. The AI backend is still too slow.")
+        : error;
+      const canRetryLoopback = error instanceof TypeError && index < AGENT_CHAT_API_CANDIDATES.length - 1;
+      if (!canRetryLoopback) {
+        throw lastError;
+      }
+    } finally {
+      window.clearTimeout(timeout);
+    }
   }
-  return payload;
+  throw lastError || new Error("AI backend request failed");
 }
 
 function sleep(ms) {

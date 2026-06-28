@@ -456,6 +456,7 @@ class AgentHandler(SimpleHTTPRequestHandler):
             message = str(payload.get("message", "")).strip()
             session_id = str(payload.get("sessionId", "")).strip() or "local-browser"
             account_id = normalize_account_id(str(payload.get("accountId", "")).strip() or ACCOUNT_ID)
+            history = clean_client_history(payload.get("history", []), current_message=message)
             raw_attachments = payload.get("attachments", [])
             if not isinstance(raw_attachments, list):
                 raw_attachments = []
@@ -474,11 +475,11 @@ class AgentHandler(SimpleHTTPRequestHandler):
             )
 
             if agent_id == "all":
-                result = run_team_chat(session_id, account_id, turn_context)
+                result = run_team_chat(session_id, account_id, turn_context, history)
                 self._send_json(result)
                 return
 
-            self._send_json(run_direct_agent_chat(session_id, account_id, agent_id, turn_context))
+            self._send_json(run_direct_agent_chat(session_id, account_id, agent_id, turn_context, history))
         except ValueError as exc:
             self._send_json({"error": str(exc)}, status=HTTPStatus.BAD_REQUEST)
         except Exception as exc:
@@ -651,6 +652,7 @@ def run_direct_agent_chat(
     account_id: str,
     agent_id: str,
     turn_context: TurnContext,
+    history: object | None = None,
 ) -> dict[str, Any]:
     store = get_memory(agent_id, account_id=account_id)
     crm = get_crm(account_id=account_id)
@@ -663,11 +665,16 @@ def run_direct_agent_chat(
     )
     memory_context = store.context_for_prompt(turn_context.message)
     crm_context = crm.context_for_query(turn_context.message) if agent_id in {"coordinator", "mika", "dev", "nova"} else ""
+    prompt_history = merge_histories(
+        memory_turns(agent_id, account_id=account_id, limit=8),
+        history,
+        limit=12,
+    )
     reply = run_ai(
         build_prompt(
             agent_id,
             turn_context.message,
-            memory_turns(agent_id, account_id=account_id, limit=8),
+            prompt_history,
             memory_context=memory_context,
             tool_context=turn_context.tool_context,
             crm_context=crm_context,
@@ -714,7 +721,12 @@ def run_direct_agent_chat(
     }
 
 
-def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -> dict[str, Any]:
+def run_team_chat(
+    session_id: str,
+    account_id: str,
+    turn_context: TurnContext,
+    history: object | None = None,
+) -> dict[str, Any]:
     run_id = uuid.uuid4().hex[:12]
     pending_key = f"{account_id}:{session_id}"
     pending = PENDING_TEAM_RUNS.pop(pending_key, None)
@@ -726,6 +738,11 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
             f"Уточнение пользователя:\n{turn_context.message}"
         )
     coordinator = get_memory("coordinator", account_id=account_id)
+    team_history = merge_histories(
+        memory_turns("coordinator", account_id=account_id, limit=8),
+        history,
+        limit=14,
+    )
     user_message_id = coordinator.add_message(
         role="user",
         author="User",
@@ -743,6 +760,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         run_id,
         account_id=account_id,
         effective_message=effective_message,
+        history=team_history,
     )
     assignments = normalize_assignments(decision.get("assignments"))
     coordinator_note = str(decision.get("coordinatorMessage") or decision.get("summary") or "").strip()
@@ -787,7 +805,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         reply = coordinator_note or run_ai(
         build_coordinator_direct_prompt(
             effective_message,
-            memory_turns("coordinator", account_id=account_id, limit=8),
+            team_history,
             memory_context=coordinator.context_for_prompt(effective_message),
             tool_context=turn_context.tool_context,
             crm_context=get_crm(account_id=account_id).context_for_query(effective_message),
@@ -869,6 +887,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
         run_id,
         session_id,
         account_id,
+        history,
     ):
         reports.append(item["report"])
         messages.append(item["message"])
@@ -887,7 +906,7 @@ def run_team_chat(session_id: str, account_id: str, turn_context: TurnContext) -
     final_reply = run_ai(
         build_coordinator_final_prompt(
             effective_message,
-            memory_turns("coordinator", account_id=account_id, limit=8),
+            team_history,
             decision,
             reports,
             memory_context=coordinator.context_for_prompt(effective_message),
@@ -948,13 +967,14 @@ def coordinator_decision(
     *,
     account_id: str,
     effective_message: str | None = None,
+    history: object | None = None,
 ) -> dict[str, Any]:
     message = effective_message or turn_context.message
     coordinator = get_memory("coordinator", account_id=account_id)
     raw = run_ai(
         build_coordinator_decision_prompt(
             message,
-            memory_turns("coordinator", account_id=account_id, limit=8),
+            history if history is not None else memory_turns("coordinator", account_id=account_id, limit=8),
             memory_context=coordinator.context_for_prompt(message),
             tool_context=turn_context.tool_context,
             crm_context=get_crm(account_id=account_id).context_for_query(message),
@@ -1223,6 +1243,48 @@ def memory_turns(
     ]
 
 
+def clean_client_history(history: object, *, current_message: str = "", limit: int = 14) -> list[dict[str, str]]:
+    if not isinstance(history, list):
+        return []
+    cleaned: list[dict[str, str]] = []
+    current = current_message.strip()
+    for index, item in enumerate(history[-limit:]):
+        if not isinstance(item, dict):
+            continue
+        role = "user" if str(item.get("role") or "").lower() == "user" else "assistant"
+        author = str(item.get("author") or role).strip()[:80]
+        text = str(item.get("text") or "").strip()
+        if not text or text == "Thinking...":
+            continue
+        is_last_current_user = index == len(history[-limit:]) - 1 and role == "user" and text == current
+        if is_last_current_user:
+            continue
+        cleaned.append({"role": role, "author": author or role, "text": text[:3000]})
+    return cleaned
+
+
+def merge_histories(*histories: object, limit: int = 14) -> list[dict[str, str]]:
+    merged: list[dict[str, str]] = []
+    seen: set[tuple[str, str, str]] = set()
+    for history in histories:
+        if not isinstance(history, list):
+            continue
+        for item in history:
+            if not isinstance(item, dict):
+                continue
+            role = "user" if str(item.get("role") or "").lower() == "user" else "assistant"
+            author = str(item.get("author") or role).strip()[:80]
+            text = str(item.get("text") or "").strip()
+            if not text:
+                continue
+            key = (role, author, text)
+            if key in seen:
+                continue
+            seen.add(key)
+            merged.append({"role": role, "author": author or role, "text": text[:3000]})
+    return merged[-limit:]
+
+
 def agent_message(
     author: str,
     text: str,
@@ -1280,6 +1342,7 @@ def run_assignment_reports(
     run_id: str,
     session_id: str,
     account_id: str,
+    history: object | None = None,
 ) -> list[dict[str, Any]]:
     if len(assignments) <= 1:
         return [
@@ -1290,6 +1353,7 @@ def run_assignment_reports(
                 run_id,
                 session_id,
                 account_id,
+                history,
             )
             for assignment in assignments
         ]
@@ -1306,6 +1370,7 @@ def run_assignment_reports(
                 run_id,
                 session_id,
                 account_id,
+                history,
             )
             for assignment in assignments
         ]
@@ -1321,6 +1386,7 @@ def run_single_assignment_report(
     run_id: str,
     session_id: str,
     account_id: str,
+    history: object | None = None,
 ) -> dict[str, Any]:
     agent_id = assignment["agentId"]
     agent_store = get_memory(agent_id, account_id=account_id)
@@ -1333,12 +1399,17 @@ def run_single_assignment_report(
         source_agent_id="coordinator",
         metadata={"sessionId": session_id},
     )
+    prompt_history = merge_histories(
+        memory_turns(agent_id, account_id=account_id, limit=8),
+        history,
+        limit=14,
+    )
     report = run_ai(
         build_agent_report_prompt(
             agent_id,
             assignment["task"],
             effective_message,
-            memory_turns(agent_id, account_id=account_id, limit=8),
+            prompt_history,
             memory_context=agent_store.context_for_prompt(f"{effective_message}\n{assignment['task']}"),
             tool_context=turn_context.tool_context,
             crm_context=get_crm(account_id=account_id).context_for_query(effective_message)
@@ -1839,27 +1910,31 @@ def run_ai(
     search_enabled: bool | None = None,
 ) -> str:
     try:
-        return run_codex(
+        return run_openrouter(
             prompt,
             agent_id=agent_id,
-            image_paths=image_paths,
+            image_paths=image_paths or [],
             search_enabled=search_enabled,
         )
-    except RuntimeError as codex_error:
+    except RuntimeError as openrouter_error:
+        print(
+            f"OpenRouter failed for {agent_id}, falling back to Codex: {str(openrouter_error)[-300:]}",
+            flush=True,
+        )
         try:
-            return run_openrouter(
+            return run_codex(
                 prompt,
                 agent_id=agent_id,
-                image_paths=image_paths or [],
+                image_paths=image_paths,
                 search_enabled=search_enabled,
             )
-        except RuntimeError as openrouter_error:
-            codex_detail = str(codex_error)[-500:]
+        except RuntimeError as codex_error:
             openrouter_detail = str(openrouter_error)[-500:]
+            codex_detail = str(codex_error)[-500:]
             raise RuntimeError(
-                f"AI backend не ответил. Codex primary: {codex_detail}. "
-                f"OpenRouter fallback: {openrouter_detail}"
-            ) from openrouter_error
+                f"AI backend не ответил. OpenRouter primary: {openrouter_detail}. "
+                f"Codex fallback: {codex_detail}"
+            ) from codex_error
 
 
 def run_openrouter(
@@ -1891,7 +1966,7 @@ def run_openrouter(
             "Authorization": f"Bearer {api_key}",
             "Content-Type": "application/json",
             "HTTP-Referer": "http://localhost:3000",
-            "X-Title": "Rebly AI Agent Team",
+            "X-OpenRouter-Title": "Rebly AI Agent Team",
         },
         method="POST",
     )

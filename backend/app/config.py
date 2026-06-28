@@ -25,6 +25,12 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""
     telegram_target_chat_id: str = ""
     telegram_auto_publish: bool = False
+    telegram_group_chat_id: str = ""
+    telegram_atlas_bot_token: str = ""
+    telegram_ava_bot_token: str = ""
+    telegram_scout_bot_token: str = ""
+    telegram_dex_bot_token: str = ""
+    telegram_echo_bot_token: str = ""
 
 
 @lru_cache
